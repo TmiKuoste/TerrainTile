@@ -9,14 +9,17 @@
 
   <PropertyGroup>
     <AssemblyName>TerrainEngine.TileBuilders</AssemblyName>
+    <GeneratePackageOnBuild>True</GeneratePackageOnBuild>
+    <Copyright>Kuoste</Copyright>
+    <RepositoryUrl>https://github.com/Kuoste/TerrainTile.git</RepositoryUrl>
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="LasUtility" Version="0.9.3" />
     <PackageReference Include="NetTopologySuite.Features" Version="2.2.0" />
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\..\tools\LasUtility\LasUtility\LasUtility.csproj" />
     <ProjectReference Include="..\Common\Common.csproj" />
   </ItemGroup>
 

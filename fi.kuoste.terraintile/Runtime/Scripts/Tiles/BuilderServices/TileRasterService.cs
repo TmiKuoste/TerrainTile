@@ -2,7 +2,7 @@ using Kuoste.TerrainEngine.Common.Interfaces;
 using Kuoste.TerrainEngine.Common.Loggers;
 using Kuoste.TerrainEngine.Common.Tiles;
 using LasUtility.Nls;
-using LasUtility.ShapefileRasteriser;
+using LasUtility.Shapefile;
 using NetTopologySuite.Geometries;
 using System.Collections;
 using System.Collections.Concurrent;

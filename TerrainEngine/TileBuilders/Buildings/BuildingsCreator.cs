@@ -230,7 +230,7 @@ namespace Kuoste.TerrainEngine.TileBuilders.Buildings
             return reader.Build(tile);
         }
 
-        private static void AddPointsAlongPolygon(LineString ls, Envelope boundsRounded, SurfaceTriangulation tri)
+        private static void AddPointsAlongPolygon(LineString ls, Envelope boundsRounded, ITriangulation tri)
         {
             for (int i = 1; i < ls.NumPoints; i++)
             {
