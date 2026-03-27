@@ -9,14 +9,14 @@ namespace BuilderServices
             Console.WriteLine("Receiving message from Azure Service Bus...");
 
             string? connectionString = Environment.GetEnvironmentVariable("AZURE_SERVICE_BUS_CONNECTION_STRING");
-            if (String.IsNullOrEmpty(connectionString))
+            if (string.IsNullOrEmpty(connectionString))
             {
                 Console.WriteLine("Connection string is not set.");
                 return;
             }
 
             string? queueName = Environment.GetEnvironmentVariable("AZURE_SERVICE_BUS_SB_QUEUE_NAME");
-            if (String.IsNullOrEmpty(queueName))
+            if (string.IsNullOrEmpty(queueName))
             {
                 Console.WriteLine("Queue name is not set.");
                 return;

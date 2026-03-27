@@ -1,6 +1,6 @@
 using LasUtility.Common;
 using LasUtility.Nls;
-using LasUtility.ShapefileRasteriser;
+using LasUtility.Shapefile;
 using NetTopologySuite.Geometries;
 using NetTopologySuite.IO.Esri.Shapefiles.Readers;
 using NetTopologySuite.IO.Esri;
