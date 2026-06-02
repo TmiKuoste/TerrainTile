@@ -103,7 +103,7 @@ namespace Kuoste.TerrainTile.Tiles
                     new TreeReader() { CancellationToken = token, Logger = loggerGeometry },
                     new SimpleTreeCreator() { CancellationToken = token, Logger = loggerGeometry },
                     new WaterAreasReader() { CancellationToken = token, Logger = loggerGeometry },
-                    new IWaterAreasCreator() { CancellationToken = token, Logger = loggerGeometry },
+                    new WaterAreasCreator() { CancellationToken = token, Logger = loggerGeometry },
                     token, loggerGeometry);
 
             _dsmPointCloudThread = new(() => DsmPointCloudService.BuilderThread());

@@ -1,36 +1,58 @@
-# fi.kuoste.terraintile
+# TerrainTile
 
-Welcome to the `fi.kuoste.terraintile` repository! This Unity package is designed for creating realistic landscapes from NLS Finland point clouds and other geospatial data.
-
-Click the image below to see the package in action!
+Builds realistic 3D terrain tiles from [NLS Finland](https://www.maanmittauslaitos.fi/en)
+point clouds (`.laz`) and geospatial data (shapefiles, rasters). The terrain engine is
+platform-independent .NET and is consumed primarily as a Unity package — Unity is one output
+profile, not the core.
 
 [![Dynamic Landscapes in Unity Based on Real-World Data](https://img.youtube.com/vi/NTpnqi7m9Qw/0.jpg)](https://www.youtube-nocookie.com/embed/NTpnqi7m9Qw?si=X535YuvHWBivy9DT)
 
+## Repository structure
 
-## Features
+| Path | What it is | Target |
+| --- | --- | --- |
+| [`TerrainEngine/`](TerrainEngine/) | Platform-independent core: `Tile`, builder interfaces, and concrete tile builders (`TerrainEngine.sln`). Published as the `TerrainEngine.TileBuilders` NuGet package. | `netstandard2.1` / C# 9 |
+| [`fi.kuoste.terraintile/`](fi.kuoste.terraintile/) | Unity package (UPM) — runtime scripts, `TileManager`, samples, and vendored engine DLLs. See its [README](fi.kuoste.terraintile/README.md). | Unity |
+| [`BuilderServices/`](BuilderServices/) | Dockerised console worker that builds tiles from jobs on an Azure Service Bus queue (`BuilderServices.sln`). | `net9.0` |
 
-- **Terrain Prefab**: Utilize the included terrain prefab to kickstart your landscape creation.
-- **GIS Data Integration**: Seamlessly import GIS data to shape your terrain to real-world topography.
-- **Point Cloud Processing**: Convert point clouds into detailed terrain meshes.
+## How a tile is built
 
-## Getting Started
+A `Tile` aggregates three content categories — each built independently and concurrently.
+Each category has an `IXxxBuilder` interface with a `Reader` (loads from the intermediate
+cache) and a `Creator` (builds from raw source data).
 
-To get started with `fi.kuoste.terraintile`, clone this repository and import the package into your Unity project. Follow the instructions in the `Samples` folder to learn how to integrate point clouds and GIS data into your terrain.
+| Builder | Creator | Reader |
+| --- | --- | --- |
+| **DemDsm** | `DemDsmCreator` — reads a 3 km² LAZ point cloud, builds a Delaunay triangulation per 1 km² subtile with edge overlap to prevent gaps, rasterizes ground + vegetation points into a `VoxelGrid`, serializes to cache | `DemDsmReader` — deserializes the cached `VoxelGrid` |
+| **Rasters** | `RasterCreator` — rasterizes NLS topographic DB shapefiles (building footprints, terrain type polygons) into a `ByteRaster` using NLS classification values | `RasterReader` — loads the cached ASCII raster |
+| **Buildings** | `BuildingsCreator` — reads building footprints from shapefiles, samples point cloud heights (80th percentile), generates 3D meshes with separate wall and roof submeshes | `BuildingsReader` — deserializes cached building vertex/triangle data |
+| **Trees** | `SimpleTreeCreator` — detects trees from the `VoxelGrid` by finding high-vegetation clusters (≥ 5 points, height 2–50 m) not adjacent to buildings or roads | `TreeReader` — deserializes cached tree point list |
+| **WaterAreas** | `WaterAreasCreator` — clips terrain-type polygons from the topographic DB to the tile bounds, retaining water-area features | `WaterAreasReader` — deserializes cached water-area polygons |
+
+## Building
+
+```sh
+# Core engine + tile builders
+dotnet build TerrainEngine/TerrainEngine.sln
+
+# Service worker (needs AZURE_SERVICE_BUS_CONNECTION_STRING and AZURE_SERVICE_BUS_SB_QUEUE_NAME)
+dotnet build BuilderServices/BuilderServices.sln
+dotnet run --project BuilderServices/BuilderServices.csproj
+
+# Worker Docker image
+docker build -t terraintile-builder -f BuilderServices/Dockerfile BuilderServices
+```
+
+The Unity package's play-mode tests run through the Unity Test Runner (not `dotnet test`).
+
+## Contributing / AI agents
+
+Coding guidance for both humans and AI tools lives in [`.github/`](.github/) and
+[`AGENTS.md`](AGENTS.md) / [`CLAUDE.md`](CLAUDE.md). See
+[`.github/instructions/repository-workflow.instructions.md`](.github/instructions/repository-workflow.instructions.md)
+for branching and workflow conventions.
 
 ## License
-Copyright (c) 2025 Kuoste
 
-Software may not be used for any commercial purpose. Please contact for a commercial license.
-
-The software is provided "as is", without warranty of any kind.
-
-Modification of the software is permitted. Credit original author. Modified software may not be used commercially.
-
-Vellu Sorvari [LinkedIn](https://www.linkedin.com/in/vellusorvari/)
-
-## 3rd party libraries
- - [LASZip](https://github.com/LASzip/LASzip), [Apache-2.0 License](http://www.apache.org/licenses/LICENSE-2.0)
- - [LasZipNetStandard](https://github.com/Kuoste/LasZipNetStandard), [Apache-2.0 License](http://www.apache.org/licenses/LICENSE-2.0)
- - [MessagePack](https://github.com/MessagePack-CSharp/MessagePack-CSharp), [MIT License](https://en.wikipedia.org/wiki/MIT_license)
- - [MIConvexHull](https://github.com/DesignEngrLab/MIConvexHull), [MIT License](https://en.wikipedia.org/wiki/MIT_license)
- - [NetTopologySuite](https://github.com/NetTopologySuite/NetTopologySuite), [BSD-3-Clause](https://licenses.nuget.org/BSD-3-Clause)
+Copyright © 2026 Vellu Sorvari / Kuoste. Free for personal, educational, and research use.
+Commercial use requires a separate license — see [`LICENSE`](LICENSE) for full terms.
