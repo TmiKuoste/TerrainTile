@@ -3,6 +3,7 @@ using Kuoste.TerrainEngine.Common.Tiles;
 using NetTopologySuite.Geometries;
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 
 namespace Kuoste.TerrainEngine.TileBuilders.WaterAreas
@@ -40,9 +41,9 @@ namespace Kuoste.TerrainEngine.TileBuilders.WaterAreas
                     coords[2] = coords[2][..coords[2].IndexOf(']')];
 
                     coordinates.Add(new(
-                        double.Parse(coords[0]),
-                        double.Parse(coords[1]),
-                        double.Parse(coords[2])));
+                        double.Parse(coords[0], CultureInfo.InvariantCulture),
+                        double.Parse(coords[1], CultureInfo.InvariantCulture),
+                        double.Parse(coords[2], CultureInfo.InvariantCulture)));
                 }
 
                 if (coordinates.Count > 0)
