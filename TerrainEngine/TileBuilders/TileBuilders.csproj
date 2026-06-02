@@ -12,7 +12,12 @@
     <GeneratePackageOnBuild>True</GeneratePackageOnBuild>
     <Copyright>Kuoste</Copyright>
     <RepositoryUrl>https://github.com/Kuoste/TerrainTile.git</RepositoryUrl>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="..\README.md" Pack="true" PackagePath="\"/>
+  </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="LasUtility" Version="0.9.3" />

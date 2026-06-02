@@ -11,7 +11,7 @@ using System.IO;
 
 namespace Kuoste.TerrainEngine.TileBuilders.WaterAreas
 {
-    public class IWaterAreasCreator : Builder, IWaterAreasBuilder
+    public class WaterAreasCreator : Builder, IWaterAreasBuilder
     {
         public List<Polygon> Build(Tile tile)
         {
