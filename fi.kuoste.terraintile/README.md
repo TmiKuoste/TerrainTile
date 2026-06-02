@@ -4,7 +4,7 @@ Welcome to the `fi.kuoste.terraintile` repository! This Unity package is designe
 
 Click the image below to see the package in action!
 
-[![Dynamic Landscapes in Unity Based on Real-World Data](https://img.youtube.com/vi/NTpnqi7m9Qw/0.jpg)](https://www.youtube-nocookie.com/embed/NTpnqi7m9Qw?si=X535YuvHWBivy9DT)
+[![Dynamic Landscapes in Unity Based on Real-World Data](https://img.youtube.com/vi/NTpnqi7m9Qw/0.jpg)](https://www.youtube.com/watch?v=NTpnqi7m9Qw)
 
 
 ## Features
