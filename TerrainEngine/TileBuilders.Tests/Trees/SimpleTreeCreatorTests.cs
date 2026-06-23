@@ -24,7 +24,8 @@ public class SimpleTreeCreatorTests : IDisposable
     // where the DemDsm always has overlap. This keeps tile bounds strictly interior to
     // the grid so ProjToCell never hits the exclusive-max boundary.
     private const int OverlapMeters = 50;
-    private const int GridEdgeMeters = TileCommon.EdgeLength + 2 * OverlapMeters; // 1100 m
+    private const int OutputEdgeMeters = 1000; // default TileCommon.OutputEdgeLength
+    private const int GridEdgeMeters = OutputEdgeMeters + 2 * OverlapMeters; // 1100 m
     private const int GridSize = 110;  // 10 m/cell
     // Tree is placed at the grid cell that maps to the tile centre
     private const int CenterRow = GridSize / 2; // 55
@@ -125,8 +126,8 @@ public class SimpleTreeCreatorTests : IDisposable
     {
         // Extend beyond the tile on all sides so tile bounds are strictly interior
         var extent = new Envelope(
-            MinEast - OverlapMeters, MinEast + TileCommon.EdgeLength + OverlapMeters,
-            MinNorth - OverlapMeters, MinNorth + TileCommon.EdgeLength + OverlapMeters);
+            MinEast - OverlapMeters, MinEast + OutputEdgeMeters + OverlapMeters,
+            MinNorth - OverlapMeters, MinNorth + OutputEdgeMeters + OverlapMeters);
 
         var grid = VoxelGrid.CreateGrid(GridSize, GridSize, extent);
 

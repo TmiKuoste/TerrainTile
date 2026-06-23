@@ -34,6 +34,8 @@ namespace Kuoste.TerrainEngine.TileBuilders.Rasters
             string s12km12kmMapTileName = tile.Common.TileScheme.Encode(bounds.MinX, bounds.MinY, TopographicDb.iMapTileEdgeLengthInMeters);
             Envelope bounds12km = tile.Common.TileScheme.Decode(s12km12kmMapTileName);
 
+            int iOutputEdge = tile.Common.OutputEdgeLength;
+
             string sFullFilename = Path.Combine(tile.Common.DirectoryIntermediate, IRasterBuilder.Filename(tile.Name, _sRasterFilenameSpecifier, tile.Common.Version));
 
             // Check if the tile is already being processed and add it to the dictionary if not.
@@ -49,7 +51,7 @@ namespace Kuoste.TerrainEngine.TileBuilders.Rasters
 
             Envelope rasterBounds = new(bounds12km);
 
-            int iRowAndColCount = TopographicDb.iMapTileEdgeLengthInMeters / TileCommon.EdgeLength * tile.Common.AlphamapResolution;
+            int iRowAndColCount = TopographicDb.iMapTileEdgeLengthInMeters / iOutputEdge * tile.Common.AlphamapResolution;
             rasteriser.InitializeRaster(iRowAndColCount, iRowAndColCount, rasterBounds);
 
             rasteriser.AddRasterizedClassesWithRasterValues(_nlsClassesToRasterValues);
@@ -59,25 +61,25 @@ namespace Kuoste.TerrainEngine.TileBuilders.Rasters
                 rasteriser.RasteriseShapefile(Path.Combine(tile.Common.DirectoryOriginal, sFilename));
             }
 
-            for (int x = (int)bounds12km.MinX; x < (int)bounds12km.MaxX; x += TileCommon.EdgeLength)
+            for (int x = (int)bounds12km.MinX; x < (int)bounds12km.MaxX; x += iOutputEdge)
             {
-                for (int y = (int)bounds12km.MinY; y < (int)bounds12km.MaxY; y += TileCommon.EdgeLength)
+                for (int y = (int)bounds12km.MinY; y < (int)bounds12km.MaxY; y += iOutputEdge)
                 {
                     if (IsCancellationRequested())
                         return new ByteRaster();
 
                     // Save to filesystem
-                    string sTileName = tile.Common.TileScheme.Encode(x, y, TileCommon.EdgeLength);
+                    string sTileName = tile.Common.TileScheme.Encode(x, y, iOutputEdge);
                     rasteriser.WriteAsAscii(
                         Path.Combine(tile.Common.DirectoryIntermediate, IRasterBuilder.Filename(sTileName, _sRasterFilenameSpecifier, tile.Common.Version)),
-                        x, y, x + TileCommon.EdgeLength, y + TileCommon.EdgeLength);
+                        x, y, x + iOutputEdge, y + iOutputEdge);
                 }
             }
 
             //rasteriser.WriteAsAscii(Path.Combine(tile.DirectoryIntermediate, s12km12kmMapTileName + "_full.asc"));
 
             return rasteriser.Crop((int)bounds.MinX, (int)bounds.MinY,
-                (int)bounds.MinX + TileCommon.EdgeLength, (int)bounds.MinY + TileCommon.EdgeLength);
+                (int)bounds.MinX + iOutputEdge, (int)bounds.MinY + iOutputEdge);
         }
 
         public void SetShpFilenames(string[] inputFilenames)

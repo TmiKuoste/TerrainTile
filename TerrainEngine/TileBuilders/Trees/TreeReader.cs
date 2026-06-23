@@ -42,8 +42,8 @@ namespace Kuoste.TerrainEngine.TileBuilders.Trees
                     coords[2] = coords[2][..coords[2].IndexOf(']')];
 
                     trees.Add(new(
-                        (double.Parse(coords[0], CultureInfo.InvariantCulture) - bounds.MinX) / TileCommon.EdgeLength,
-                        (double.Parse(coords[1], CultureInfo.InvariantCulture) - bounds.MinY) / TileCommon.EdgeLength,
+                        (double.Parse(coords[0], CultureInfo.InvariantCulture) - bounds.MinX) / tile.Common.OutputEdgeLength,
+                        (double.Parse(coords[1], CultureInfo.InvariantCulture) - bounds.MinY) / tile.Common.OutputEdgeLength,
                         double.Parse(coords[2], CultureInfo.InvariantCulture)));
                 }
             }

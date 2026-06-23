@@ -6,9 +6,13 @@ namespace Kuoste.TerrainEngine.Common.Tests.Tiles;
 public class TileCommonTests
 {
     [Fact]
-    public void EdgeLength_IsOneThousand()
+    public void DefaultEdgeLengths_AreOutput1000_Block1000_Source3000()
     {
-        Assert.Equal(1000, TileCommon.EdgeLength);
+        var common = new TileCommon(256, "/i", "/o", "1");
+
+        Assert.Equal(1000, common.OutputEdgeLength);
+        Assert.Equal(1000, common.BlockEdgeLength);
+        Assert.Equal(3000, common.SourceEdgeLength);
     }
 
     [Fact]
