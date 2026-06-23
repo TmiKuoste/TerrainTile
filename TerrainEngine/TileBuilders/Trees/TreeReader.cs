@@ -1,6 +1,5 @@
 using Kuoste.TerrainEngine.Common.Interfaces;
 using Kuoste.TerrainEngine.Common.Tiles;
-using LasUtility.Nls;
 using NetTopologySuite.Geometries;
 using System;
 using System.Globalization;
@@ -20,7 +19,7 @@ namespace Kuoste.TerrainEngine.TileBuilders.Trees
             if (IsCancellationRequested())
                 return trees;
 
-            TileNamer.Decode(tile.Name, out Envelope bounds);
+            Envelope bounds = tile.Common.TileScheme.Decode(tile.Name);
             string sFullFilename = Path.Combine(tile.Common.DirectoryIntermediate, ITreeBuilder.Filename(tile.Name, tile.Common.Version));
 
             string[] sTrees = File.ReadAllText(sFullFilename).Split("Point");

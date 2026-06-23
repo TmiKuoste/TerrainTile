@@ -27,8 +27,8 @@ namespace Kuoste.TerrainEngine.TileBuilders.Buildings
                 return new();
 
             // Get topographic db tile name
-            TileNamer.Decode(tile.Name, out Envelope bounds);
-            string s12km12kmMapTileName = TileNamer.Encode((int)bounds.MinX, (int)bounds.MinY, TopographicDb.iMapTileEdgeLengthInMeters);
+            Envelope bounds = tile.Common.TileScheme.Decode(tile.Name);
+            string s12km12kmMapTileName = tile.Common.TileScheme.Encode(bounds.MinX, bounds.MinY, TopographicDb.iMapTileEdgeLengthInMeters);
 
             string sOutputFilename = Path.Combine(tile.Common.DirectoryIntermediate, IBuildingsBuilder.Filename(tile.Name, tile.Common.Version));
             string sOutputTempName = sOutputFilename + ".tmp";

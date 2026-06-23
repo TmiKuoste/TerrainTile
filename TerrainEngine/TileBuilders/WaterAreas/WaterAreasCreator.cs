@@ -21,10 +21,10 @@ namespace Kuoste.TerrainEngine.TileBuilders.WaterAreas
                 return waterAreas;
 
             // Get topographic db tile name
-            TileNamer.Decode(tile.Name, out Envelope envBounds);
+            Envelope envBounds = tile.Common.TileScheme.Decode(tile.Name);
             GeometryFactory factory = new();
             Geometry bounds = factory.ToGeometry(envBounds);
-            string s12km12kmMapTileName = TileNamer.Encode((int)envBounds.MinX, (int)envBounds.MinY, TopographicDb.iMapTileEdgeLengthInMeters);
+            string s12km12kmMapTileName = tile.Common.TileScheme.Encode(envBounds.MinX, envBounds.MinY, TopographicDb.iMapTileEdgeLengthInMeters);
 
             string sFullFilename = Path.Combine(tile.Common.DirectoryOriginal, TopographicDb.sPrefixForTerrainType + s12km12kmMapTileName + TopographicDb.sPostfixForPolygon + ".shp");
 
