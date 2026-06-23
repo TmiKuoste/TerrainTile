@@ -275,10 +275,10 @@ namespace Kuoste.TerrainEngine.TileBuilders.Buildings
             streamWriter.Write("{ \"type\":\"Polygon\", \"coordinates\": ");
             streamWriter.Write("[[");
 
-            streamWriter.Write($"[{c0.X},{c0.Y},{fBuildingHeight}],");
-            streamWriter.Write($"[{c1.X},{c1.Y},{fBuildingHeight}],");
-            streamWriter.Write($"[{c2.X},{c2.Y},{fBuildingHeight}],");
-            streamWriter.Write($"[{c0.X},{c0.Y},{fBuildingHeight}]");
+            streamWriter.Write(FormattableString.Invariant($"[{c0.X},{c0.Y},{fBuildingHeight}],"));
+            streamWriter.Write(FormattableString.Invariant($"[{c1.X},{c1.Y},{fBuildingHeight}],"));
+            streamWriter.Write(FormattableString.Invariant($"[{c2.X},{c2.Y},{fBuildingHeight}],"));
+            streamWriter.Write(FormattableString.Invariant($"[{c0.X},{c0.Y},{fBuildingHeight}]"));
 
             // End polygon
             streamWriter.Write("]]");
@@ -299,7 +299,7 @@ namespace Kuoste.TerrainEngine.TileBuilders.Buildings
                 if (double.IsNaN(dGroundHeight))
                     dGroundHeight = fLowestGroundHeight;
 
-                streamWriter.Write($"[{Math.Round(c.X, 2)},{Math.Round(c.Y, 2)},{Math.Round(dGroundHeight, 2)}]");
+                streamWriter.Write(FormattableString.Invariant($"[{Math.Round(c.X, 2)},{Math.Round(c.Y, 2)},{Math.Round(dGroundHeight, 2)}]"));
 
                 if (i < buildingExterior.Coordinates.Length - 1)
                 {

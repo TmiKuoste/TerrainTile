@@ -91,7 +91,7 @@ namespace Kuoste.TerrainEngine.TileBuilders.WaterAreas
 
                             for (int i = 0; i < coords.Count; i++)
                             {
-                                streamWriter.Write($"[{coords[i].X},{coords[i].Y},{coords[i].Z}]");
+                                streamWriter.Write(FormattableString.Invariant($"[{coords[i].X},{coords[i].Y},{coords[i].Z}]"));
 
                                 if (i < coords.Count - 1)
                                 {

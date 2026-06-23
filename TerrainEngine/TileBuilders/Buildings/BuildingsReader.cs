@@ -4,6 +4,7 @@ using LasUtility.Nls;
 using NetTopologySuite.Geometries;
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Numerics;
 
@@ -51,7 +52,10 @@ namespace Kuoste.TerrainEngine.TileBuilders.Buildings
                         // Delete the last character which is a closing bracket and everyting after it
                         sCoords[2] = sCoords[2][..sCoords[2].IndexOf(']')];
 
-                        vCoordinates.Add(new(float.Parse(sCoords[0]), float.Parse(sCoords[1]), float.Parse(sCoords[2])));
+                        vCoordinates.Add(new(
+                            float.Parse(sCoords[0], CultureInfo.InvariantCulture),
+                            float.Parse(sCoords[1], CultureInfo.InvariantCulture),
+                            float.Parse(sCoords[2], CultureInfo.InvariantCulture)));
                     }
 
                     if (vCoordinates.Count == 0)
