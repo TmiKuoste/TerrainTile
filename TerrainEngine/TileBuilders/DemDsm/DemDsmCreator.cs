@@ -19,7 +19,8 @@ namespace Kuoste.TerrainEngine.TileBuilders.DemDsm
         /// <summary>
         /// Use some overlap in triangulations or else the triangulations won't be complete on edges
         /// </summary>
-        const int _iOverlapInMeters = (_iTotalEdgeLengthInMeters - TileCommon.EdgeLength) / 2;
+        // 1000 = the legacy 1 km submesh size; this overlap/submesh mechanism is rewritten in Phase 3 (block triangulation).
+        const int _iOverlapInMeters = (_iTotalEdgeLengthInMeters - 1000) / 2;
 
         /// <summary>
         /// Total triangulation edge length
@@ -38,8 +39,10 @@ namespace Kuoste.TerrainEngine.TileBuilders.DemDsm
             if (IsCancellationRequested())
                 return new();
 
+            int iOutputEdge = tile.Common.OutputEdgeLength;
+
             Envelope bounds1km = tile.Common.TileScheme.Decode(tile.Name);
-            string s3km3kmTileName = tile.Common.TileScheme.Encode(bounds1km.MinX, bounds1km.MinY, 3000);
+            string s3km3kmTileName = tile.Common.TileScheme.Encode(bounds1km.MinX, bounds1km.MinY, tile.Common.SourceEdgeLength);
             Envelope bounds3km = tile.Common.TileScheme.Decode(s3km3kmTileName);
 
             // Check if the tile is already being processed
@@ -70,7 +73,7 @@ namespace Kuoste.TerrainEngine.TileBuilders.DemDsm
 
             reader.OpenReader(sFilename);
 
-            int iSubmeshesPerEdge = (int)Math.Round((reader.MaxX - reader.MinX) / TileCommon.EdgeLength);
+            int iSubmeshesPerEdge = (int)Math.Round((reader.MaxX - reader.MinX) / iOutputEdge);
             int iSubmeshCount = (int)Math.Pow(iSubmeshesPerEdge, 2);
 
             SurfaceTriangulation[] triangulations = new SurfaceTriangulation[iSubmeshCount];
@@ -110,23 +113,23 @@ namespace Kuoste.TerrainEngine.TileBuilders.DemDsm
                 int i3kmX = (int)(p.x - bounds3km.MinX);
                 int i3kmY = (int)(p.y - bounds3km.MinY);
 
-                AddPoint(p, iSubmeshesPerEdge, triangulations, grids, lockedCells, i3kmX, i3kmY);
+                AddPoint(p, iSubmeshesPerEdge, triangulations, grids, lockedCells, iOutputEdge, i3kmX, i3kmY);
 
                 // Look if point is part of another submesh overlap area.
                 // Overlap is needed because otherwise adjacent triangulated surfaces have a gap in between.
 
-                int iTileX = i3kmX % TileCommon.EdgeLength;
-                int iTileY = i3kmY % TileCommon.EdgeLength;
+                int iTileX = i3kmX % iOutputEdge;
+                int iTileY = i3kmY % iOutputEdge;
 
                 int iLowerBound = _iOverlapInMeters;
-                int iUpperBound = TileCommon.EdgeLength - _iOverlapInMeters;
+                int iUpperBound = iOutputEdge - _iOverlapInMeters;
                 int iMoveBy = _iOverlapInMeters;
 
                 if (iTileX < iLowerBound || iTileX > iUpperBound || iTileY < iLowerBound || iTileY > iUpperBound)
                 {
                     // This point also belongs to an overlap area of one or more other submesh.
 
-                    int iWholeMeshEdgeLength = TileCommon.EdgeLength * iSubmeshesPerEdge;
+                    int iWholeMeshEdgeLength = iOutputEdge * iSubmeshesPerEdge;
 
                     if (i3kmX < iLowerBound || i3kmX > iWholeMeshEdgeLength - iUpperBound ||
                         i3kmY < iLowerBound || i3kmY > iWholeMeshEdgeLength - iUpperBound)
@@ -140,92 +143,92 @@ namespace Kuoste.TerrainEngine.TileBuilders.DemDsm
                     if (iTileX < iLowerBound)
                     {
                         // West
-                        AddPoint(p, iSubmeshesPerEdge, triangulations, grids, lockedCells, i3kmX - iMoveBy, i3kmY);
+                        AddPoint(p, iSubmeshesPerEdge, triangulations, grids, lockedCells, iOutputEdge, i3kmX - iMoveBy, i3kmY);
 
                         if (iTileY < iLowerBound)
                         {
                             // Southwest
-                            AddPoint(p, iSubmeshesPerEdge, triangulations, grids, lockedCells, i3kmX - iMoveBy, i3kmY - iMoveBy);
+                            AddPoint(p, iSubmeshesPerEdge, triangulations, grids, lockedCells, iOutputEdge, i3kmX - iMoveBy, i3kmY - iMoveBy);
 
                             // South
-                            AddPoint(p, iSubmeshesPerEdge, triangulations, grids, lockedCells, i3kmX, i3kmY - iMoveBy);
+                            AddPoint(p, iSubmeshesPerEdge, triangulations, grids, lockedCells, iOutputEdge, i3kmX, i3kmY - iMoveBy);
                         }
                         else if (iTileY > iUpperBound)
                         {
                             // Northwest
-                            AddPoint(p, iSubmeshesPerEdge, triangulations, grids, lockedCells, i3kmX - iMoveBy, i3kmY + iMoveBy);
+                            AddPoint(p, iSubmeshesPerEdge, triangulations, grids, lockedCells, iOutputEdge, i3kmX - iMoveBy, i3kmY + iMoveBy);
 
                             // North
-                            AddPoint(p, iSubmeshesPerEdge, triangulations, grids, lockedCells, i3kmX, i3kmY + iMoveBy);
+                            AddPoint(p, iSubmeshesPerEdge, triangulations, grids, lockedCells, iOutputEdge, i3kmX, i3kmY + iMoveBy);
                         }
                     }
 
                     if (iTileX > iUpperBound)
                     {
                         // East
-                        AddPoint(p, iSubmeshesPerEdge, triangulations, grids, lockedCells, i3kmX + iMoveBy, i3kmY);
+                        AddPoint(p, iSubmeshesPerEdge, triangulations, grids, lockedCells, iOutputEdge, i3kmX + iMoveBy, i3kmY);
 
                         if (iTileY < iLowerBound)
                         {
                             // Southeast
-                            AddPoint(p, iSubmeshesPerEdge, triangulations, grids, lockedCells, i3kmX + iMoveBy, i3kmY - iMoveBy);
+                            AddPoint(p, iSubmeshesPerEdge, triangulations, grids, lockedCells, iOutputEdge, i3kmX + iMoveBy, i3kmY - iMoveBy);
 
                             // South
-                            AddPoint(p, iSubmeshesPerEdge, triangulations, grids, lockedCells, i3kmX, i3kmY - iMoveBy);
+                            AddPoint(p, iSubmeshesPerEdge, triangulations, grids, lockedCells, iOutputEdge, i3kmX, i3kmY - iMoveBy);
                         }
                         else if (iTileY > iUpperBound)
                         {
                             // Northeast
-                            AddPoint(p, iSubmeshesPerEdge, triangulations, grids, lockedCells, i3kmX + iMoveBy, i3kmY + iMoveBy);
+                            AddPoint(p, iSubmeshesPerEdge, triangulations, grids, lockedCells, iOutputEdge, i3kmX + iMoveBy, i3kmY + iMoveBy);
 
                             // North
-                            AddPoint(p, iSubmeshesPerEdge, triangulations, grids, lockedCells, i3kmX, i3kmY + iMoveBy);
+                            AddPoint(p, iSubmeshesPerEdge, triangulations, grids, lockedCells, iOutputEdge, i3kmX, i3kmY + iMoveBy);
                         }
                     }
 
                     if (iTileY < iLowerBound)
                     {
                         // South
-                        AddPoint(p, iSubmeshesPerEdge, triangulations, grids, lockedCells, i3kmX, i3kmY - iMoveBy);
+                        AddPoint(p, iSubmeshesPerEdge, triangulations, grids, lockedCells, iOutputEdge, i3kmX, i3kmY - iMoveBy);
 
                         if (iTileX < iLowerBound)
                         {
                             // Southwest
-                            AddPoint(p, iSubmeshesPerEdge, triangulations, grids, lockedCells, i3kmX - iMoveBy, i3kmY - iMoveBy);
+                            AddPoint(p, iSubmeshesPerEdge, triangulations, grids, lockedCells, iOutputEdge, i3kmX - iMoveBy, i3kmY - iMoveBy);
 
                             // West
-                            AddPoint(p, iSubmeshesPerEdge, triangulations, grids, lockedCells, i3kmX - iMoveBy, i3kmY);
+                            AddPoint(p, iSubmeshesPerEdge, triangulations, grids, lockedCells, iOutputEdge, i3kmX - iMoveBy, i3kmY);
                         }
                         else if (iTileX > iUpperBound)
                         {
                             // Southeast
-                            AddPoint(p, iSubmeshesPerEdge, triangulations, grids, lockedCells, i3kmX + iMoveBy, i3kmY - iMoveBy);
+                            AddPoint(p, iSubmeshesPerEdge, triangulations, grids, lockedCells, iOutputEdge, i3kmX + iMoveBy, i3kmY - iMoveBy);
 
                             // East
-                            AddPoint(p, iSubmeshesPerEdge, triangulations, grids, lockedCells, i3kmX + iMoveBy, i3kmY);
+                            AddPoint(p, iSubmeshesPerEdge, triangulations, grids, lockedCells, iOutputEdge, i3kmX + iMoveBy, i3kmY);
                         }
                     }
 
                     if (iTileY > iUpperBound)
                     {
                         // North
-                        AddPoint(p, iSubmeshesPerEdge, triangulations, grids, lockedCells, i3kmX, i3kmY + iMoveBy);
+                        AddPoint(p, iSubmeshesPerEdge, triangulations, grids, lockedCells, iOutputEdge, i3kmX, i3kmY + iMoveBy);
 
                         if (iTileX < iLowerBound)
                         {
                             // Northwest
-                            AddPoint(p, iSubmeshesPerEdge, triangulations, grids, lockedCells, i3kmX - iMoveBy, i3kmY + iMoveBy);
+                            AddPoint(p, iSubmeshesPerEdge, triangulations, grids, lockedCells, iOutputEdge, i3kmX - iMoveBy, i3kmY + iMoveBy);
 
                             // West
-                            AddPoint(p, iSubmeshesPerEdge, triangulations, grids, lockedCells, i3kmX - iMoveBy, i3kmY);
+                            AddPoint(p, iSubmeshesPerEdge, triangulations, grids, lockedCells, iOutputEdge, i3kmX - iMoveBy, i3kmY);
                         }
                         else if (iTileX > iUpperBound)
                         {
                             // Northeast
-                            AddPoint(p, iSubmeshesPerEdge, triangulations, grids, lockedCells, i3kmX + iMoveBy, i3kmY + iMoveBy);
+                            AddPoint(p, iSubmeshesPerEdge, triangulations, grids, lockedCells, iOutputEdge, i3kmX + iMoveBy, i3kmY + iMoveBy);
 
                             // East
-                            AddPoint(p, iSubmeshesPerEdge, triangulations, grids, lockedCells, i3kmX + iMoveBy, i3kmY);
+                            AddPoint(p, iSubmeshesPerEdge, triangulations, grids, lockedCells, iOutputEdge, i3kmX + iMoveBy, i3kmY);
                         }
                     }
                 }
@@ -315,11 +318,12 @@ namespace Kuoste.TerrainEngine.TileBuilders.DemDsm
             ITriangulation[] triangulations, 
             VoxelGrid[] grids,
             List<bool[,]> lockedCells,
-            int x, 
+            int iOutputEdge,
+            int x,
             int y)
         {
-            int ix = x / TileCommon.EdgeLength;
-            int iy = y / TileCommon.EdgeLength;
+            int ix = x / iOutputEdge;
+            int iy = y / iOutputEdge;
 
             if (ix < 0 || ix >= iSubmeshesPerEdge || iy < 0 || iy >= iSubmeshesPerEdge)
             {

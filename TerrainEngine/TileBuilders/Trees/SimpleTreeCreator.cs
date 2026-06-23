@@ -27,6 +27,7 @@ namespace Kuoste.TerrainEngine.TileBuilders.Trees
         public List<Point> Build(Tile tile)
         {
             Envelope bounds = tile.Common.TileScheme.Decode(tile.Name);
+            int iOutputEdge = tile.Common.OutputEdgeLength;
 
             List<Point> trees = new();
 
@@ -121,7 +122,7 @@ namespace Kuoste.TerrainEngine.TileBuilders.Trees
                         streamWriter.Write($"[{(int)x},{(int)y},{(int)fNearbyMaxHeights}]");
                         streamWriter.WriteLine("}");
 
-                        trees.Add(new(((int)x - bounds.MinX) / TileCommon.EdgeLength, ((int)y - bounds.MinY) / TileCommon.EdgeLength, (int)fNearbyMaxHeights));
+                        trees.Add(new(((int)x - bounds.MinX) / iOutputEdge, ((int)y - bounds.MinY) / iOutputEdge, (int)fNearbyMaxHeights));
                     }
                 }
             }
