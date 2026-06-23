@@ -38,9 +38,9 @@ namespace Kuoste.TerrainEngine.TileBuilders.DemDsm
             if (IsCancellationRequested())
                 return new();
 
-            TileNamer.Decode(tile.Name, out Envelope bounds1km);
-            string s3km3kmTileName = TileNamer.Encode((int)bounds1km.MinX, (int)bounds1km.MinY, 3000);
-            TileNamer.Decode(s3km3kmTileName, out Envelope bounds3km);
+            Envelope bounds1km = tile.Common.TileScheme.Decode(tile.Name);
+            string s3km3kmTileName = tile.Common.TileScheme.Encode(bounds1km.MinX, bounds1km.MinY, 3000);
+            Envelope bounds3km = tile.Common.TileScheme.Decode(s3km3kmTileName);
 
             // Check if the tile is already being processed
             if (true == _3kmDemDsmDone.TryGetValue(s3km3kmTileName, out bool bIsCompleted))
@@ -81,7 +81,7 @@ namespace Kuoste.TerrainEngine.TileBuilders.DemDsm
             {
                 // Create the NLS (Maanmittauslaitos) style name of a 1x1 km2 tile in order to get the coordinates.
                 string sSubmeshName = s3km3kmTileName + "_" + (i + 1).ToString();
-                TileNamer.Decode(sSubmeshName, out Envelope extent);
+                Envelope extent = tile.Common.TileScheme.Decode(sSubmeshName);
 
                 extent.ExpandBy(_iOverlapInMeters);
 
@@ -245,7 +245,7 @@ namespace Kuoste.TerrainEngine.TileBuilders.DemDsm
 
                 // Use the name of a 1x1 km2 tile to get the coordinates
                 string sSubmeshName = s3km3kmTileName + "_" + (i + 1).ToString();
-                TileNamer.Decode(sSubmeshName, out Envelope env);
+                Envelope env = tile.Common.TileScheme.Decode(sSubmeshName);
 
                 SurfaceTriangulation tri = triangulations[i];
                 VoxelGrid grid = grids[i];

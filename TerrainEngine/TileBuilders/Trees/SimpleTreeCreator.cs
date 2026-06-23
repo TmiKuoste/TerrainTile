@@ -1,7 +1,6 @@
 using Kuoste.TerrainEngine.Common.Interfaces;
 using Kuoste.TerrainEngine.Common.Tiles;
 using LasUtility.Common;
-using LasUtility.Nls;
 using LasUtility.VoxelGrid;
 using NetTopologySuite.Geometries;
 using System;
@@ -27,7 +26,7 @@ namespace Kuoste.TerrainEngine.TileBuilders.Trees
 
         public List<Point> Build(Tile tile)
         {
-            TileNamer.Decode(tile.Name, out Envelope bounds);
+            Envelope bounds = tile.Common.TileScheme.Decode(tile.Name);
 
             List<Point> trees = new();
 

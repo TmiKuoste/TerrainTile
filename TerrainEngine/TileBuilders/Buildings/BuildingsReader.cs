@@ -1,6 +1,5 @@
 using Kuoste.TerrainEngine.Common.Interfaces;
 using Kuoste.TerrainEngine.Common.Tiles;
-using LasUtility.Nls;
 using NetTopologySuite.Geometries;
 using System;
 using System.Collections.Generic;
@@ -19,7 +18,7 @@ namespace Kuoste.TerrainEngine.TileBuilders.Buildings
             if (IsCancellationRequested())
                 return buildings;
 
-            TileNamer.Decode(tile.Name, out Envelope bounds);
+            Envelope bounds = tile.Common.TileScheme.Decode(tile.Name);
             string sFullFilename = Path.Combine(tile.Common.DirectoryIntermediate, IBuildingsBuilder.Filename(tile.Name, tile.Common.Version));
 
             string[] sBuildings = File.ReadAllText(sFullFilename).Split("GeometryCollection");

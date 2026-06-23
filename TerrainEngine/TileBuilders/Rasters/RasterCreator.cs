@@ -30,9 +30,9 @@ namespace Kuoste.TerrainEngine.TileBuilders.Rasters
                 return new ByteRaster();
 
             // Get topographic db tile name
-            TileNamer.Decode(tile.Name, out Envelope bounds);
-            string s12km12kmMapTileName = TileNamer.Encode((int)bounds.MinX, (int)bounds.MinY, TopographicDb.iMapTileEdgeLengthInMeters);
-            TileNamer.Decode(s12km12kmMapTileName, out Envelope bounds12km);
+            Envelope bounds = tile.Common.TileScheme.Decode(tile.Name);
+            string s12km12kmMapTileName = tile.Common.TileScheme.Encode(bounds.MinX, bounds.MinY, TopographicDb.iMapTileEdgeLengthInMeters);
+            Envelope bounds12km = tile.Common.TileScheme.Decode(s12km12kmMapTileName);
 
             string sFullFilename = Path.Combine(tile.Common.DirectoryIntermediate, IRasterBuilder.Filename(tile.Name, _sRasterFilenameSpecifier, tile.Common.Version));
 
@@ -67,7 +67,7 @@ namespace Kuoste.TerrainEngine.TileBuilders.Rasters
                         return new ByteRaster();
 
                     // Save to filesystem
-                    string sTileName = TileNamer.Encode(x, y, TileCommon.EdgeLength);
+                    string sTileName = tile.Common.TileScheme.Encode(x, y, TileCommon.EdgeLength);
                     rasteriser.WriteAsAscii(
                         Path.Combine(tile.Common.DirectoryIntermediate, IRasterBuilder.Filename(sTileName, _sRasterFilenameSpecifier, tile.Common.Version)),
                         x, y, x + TileCommon.EdgeLength, y + TileCommon.EdgeLength);
