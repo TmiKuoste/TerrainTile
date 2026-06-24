@@ -128,8 +128,16 @@ Each phase builds & tests green on its own; biggest blast radius last.
   peak (~2.5 GB/3 km, scaled by point count) before starting. **1 km blocks stay available even for
   sparse data** so low-mem workers still run. In-process = a semaphore over the pool; across Azure
   Functions/containers = a concurrency cap tuned per instance. Wire into the worker and the Unity thread.
-- **Phase 5 — Cross-source halo (write-behind bands).** Closes the seam TODO. Extract/persist/consume
-  neighbour halo bands via `ITileScheme.Neighbors()`.
+- **Phase 5 — Cross-source halo (write-behind bands). DONE (PR #51).** Closes the seam TODO. A source
+  writes its 42 m ground edge-frame as a small `.laz` halo sidecar (LasZip writer, header copied from the
+  source so coords round-trip); neighbours read those frames back through the ordinary reader and feed
+  them through the same point distribution, so both sides triangulate the boundary from one union of
+  points. `SeamMode` on `TileCommon` (default **SinglePass**): `None` = old behaviour; `SinglePass` =
+  write own + consume existing neighbour frames; `TwoPass` = also extract a missing neighbour on demand
+  (order-independent, ~2x reads). Disjoint sources share no points, so this is the *only* way to close the
+  cross-file seam (intra-source sub-tiles already share points via the bbox distribution). Also fixed
+  output naming to come from `ITileScheme.Encode`, which makes 1 km-source mode work. Verified: overlap
+  band 0.00 → 0.93 both-covered, 7 mm agreement.
 - **Phase 6 — Output-grid generalization (largest blast radius, last).** `GridTileScheme` (arbitrary /
   `2^n`), new output-cache naming, re-tile rasters + geometries (`RasterCreator`, buildings/trees/water)
   onto the output scheme. Delivers the heightmap no-resample fix and non-Unity/arbitrary sizes.
