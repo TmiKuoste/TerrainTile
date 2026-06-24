@@ -1,0 +1,13 @@
+Cross-source seam test fixtures
+===============================
+
+L4133B3_1.laz, L4133B3_2.laz, L4133B3_4.laz, L4133B3_5.laz
+
+These four 1 km point-cloud tiles are open data from the National Land Survey of
+Finland (Maanmittauslaitos), licensed under Creative Commons Attribution 4.0
+International (CC BY 4.0): https://creativecommons.org/licenses/by/4.0/deed.en
+
+  © National Land Survey of Finland, Laser scanning data 0.5p, Helsinki, 2020.
+
+Modified: the original 3 km map sheet L4133B3 has been split into four adjacent
+1 km tiles (a 2x2 km block) for use as test fixtures.

@@ -21,6 +21,7 @@
 
   <ItemGroup>
     <PackageReference Include="LasUtility" Version="0.9.3" />
+    <PackageReference Include="LasZipNetStandard" Version="1.1.0" />
     <PackageReference Include="NetTopologySuite.Features" Version="2.2.0" />
   </ItemGroup>
 

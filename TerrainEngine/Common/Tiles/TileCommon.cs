@@ -25,8 +25,12 @@ namespace Kuoste.TerrainEngine.Common.Tiles
         /// <summary>Tiling scheme that maps tile names to world coordinates. Defaults to NLS Finland.</summary>
         public ITileScheme TileScheme { get; }
 
+        /// <summary>How cross-source seams are stitched via halo edge-frames. Defaults to <see cref="SeamMode.SinglePass"/>.</summary>
+        public SeamMode SeamMode { get; }
+
         public TileCommon(int alphamapResolution, string directoryIntermediate, string directoryOriginal, string version,
-            ITileScheme? tileScheme = null, int outputEdgeLength = 1000, int blockEdgeLength = 1000, int sourceEdgeLength = 3000)
+            ITileScheme? tileScheme = null, int outputEdgeLength = 1000, int blockEdgeLength = 1000, int sourceEdgeLength = 3000,
+            SeamMode seamMode = SeamMode.SinglePass)
         {
             AlphamapResolution = alphamapResolution;
             DirectoryIntermediate = directoryIntermediate;
@@ -36,6 +40,7 @@ namespace Kuoste.TerrainEngine.Common.Tiles
             OutputEdgeLength = outputEdgeLength;
             BlockEdgeLength = blockEdgeLength;
             SourceEdgeLength = sourceEdgeLength;
+            SeamMode = seamMode;
         }
     }
 }

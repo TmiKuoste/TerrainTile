@@ -54,6 +54,18 @@ implied, including but not limited to the warranties of merchantability, fitness
 particular purpose, and non-infringement. In no event shall the author be liable for any
 claim, damages, or other liability arising from the use of this software.
 
+## Data attribution
+
+The point clouds (`.laz`) and geospatial data (shapefiles) bundled with this package under
+`Samples/`, and the smaller fixtures used by the engine tests, are open data from the
+**National Land Survey of Finland** (Maanmittauslaitos):
+
+- Laser scanning data 0.5p and Topographic Database, Helsinki area (map sheets `L4133…`), 2020.
+- © National Land Survey of Finland, licensed under
+  [Creative Commons Attribution 4.0 International (CC BY 4.0)](https://creativecommons.org/licenses/by/4.0/deed.en).
+- The bundled tiles have been **modified** — cropped and/or split into smaller tiles — for use as
+  samples and test fixtures.
+
 ## 3rd party libraries
  - [LASZip](https://github.com/LASzip/LASzip), [Apache-2.0 License](http://www.apache.org/licenses/LICENSE-2.0)
  - [LasZipNetStandard](https://github.com/Kuoste/LasZipNetStandard), [Apache-2.0 License](http://www.apache.org/licenses/LICENSE-2.0)
