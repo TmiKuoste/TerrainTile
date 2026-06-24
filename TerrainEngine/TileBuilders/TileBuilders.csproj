@@ -28,4 +28,9 @@
     <ProjectReference Include="..\Common\Common.csproj" />
   </ItemGroup>
 
+  <!-- Vendor the built DLL into the Unity package on Release builds (path relative to this project). -->
+  <Target Name="VendorDllToUnity" AfterTargets="Build" Condition="'$(Configuration)' == 'Release'">
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="../../fi.kuoste.terraintile/Runtime/dll/" SkipUnchangedFiles="true" />
+  </Target>
+
 </Project>

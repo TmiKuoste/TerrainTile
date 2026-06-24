@@ -112,9 +112,17 @@ Each phase builds & tests green on its own; biggest blast radius last.
   rule).*
 - **Phase 2 — Decouple the three sizes in config.** Retire the `EdgeLength` global const; carry output
   size + block size on `TileCommon`/`Tile`. Defaults reproduce today's behaviour.
-- **Phase 3 — Block-triangulation rewrite.** Triangulate one configurable block (1–3 km) with a halo
-  margin, then slice the rasterised DEM into output tiles. Delete the ~116-line per-submesh overlap
-  juggling (`DemDsmCreator.cs:115-231`). Intra-source seams vanish; cross-source still TODO until Phase 5.
+- **Phase 3 — Block-size knob via bbox distribution (KEEP the submesh capability).** Replace the
+  ~116-line directional overlap **juggling** with a single **bounding-box distribution**: build *N*
+  triangulation blocks where `N = (SourceEdgeLength / BlockEdgeLength)²`, push each point into every
+  grid/block whose extent contains it, then triangulate, rasterise and free each block in turn. One knob,
+  two regimes: `BlockEdgeLength == OutputEdgeLength` reproduces the **1 km per-submesh** path (the
+  **default**, the cheap **low-mem** option for inexpensive cloud workers, ~280 MB/block);
+  `BlockEdgeLength == SourceEdgeLength` triangulates the **whole source in one block** (no internal seams,
+  ~2.5 GB for a 3 km block). Block size is thus a **memory/cost knob**, not a one-off rewrite. Default
+  behaviour unchanged (verified: whole-block DEM agrees with submesh DEM within 0.5 m on >95% of the
+  interior tile); intra-source seams vanish on the whole-block path; cross-source seams still TODO until
+  Phase 5.
 - **Phase 4 — RAM-gated parallelism.** A **shared RAM-budget pool**, configurable via env var
   (e.g. `TERRAIN_RAM_BUDGET_MB`, default a fraction of detected RAM); each block reserves its estimated
   peak (~2.5 GB/3 km, scaled by point count) before starting. **1 km blocks stay available even for

@@ -73,9 +73,49 @@ public class DemDsmCreatorTests : IDisposable
         Assert.NotNull(result.Dem);
     }
 
-    private Tile MakeTile(string dataPath) => new()
+    [Fact]
+    [Trait("Category", "Integration")]
+    public void Build_WholeBlock_ProducesEquivalentDemToSubmesh()
+    {
+        var dataPath = SampleDataHelper.FindNlsDataPath();
+        if (dataPath == null) return;
+
+        // Default path: the 3 km source is triangulated as 9 separate 1 km submesh blocks.
+        var submesh = new DemDsmCreator { CancellationToken = CancellationToken.None, Logger = NullLogger.Instance }
+            .Build(MakeTile(dataPath, blockEdge: 1000));
+
+        // Opt-in path: the whole 3 km source is triangulated as a single block (no internal seams).
+        var wholeBlock = new DemDsmCreator { CancellationToken = CancellationToken.None, Logger = NullLogger.Instance }
+            .Build(MakeTile(dataPath, blockEdge: 3000));
+
+        Assert.NotNull(wholeBlock.Dem);
+        Assert.Equal(submesh.Dem.GetLength(0), wholeBlock.Dem.GetLength(0));
+        Assert.Equal(submesh.Dem.GetLength(1), wholeBlock.Dem.GetLength(1));
+
+        // The centre tile is interior to the source, so both meshes resolve the same local triangles.
+        // Differences are confined to the grid's outer overlap ring, where the submesh mesh ends but
+        // the whole-block mesh continues — so the vast majority of cells must agree.
+        int compared = 0, agree = 0;
+        for (int r = 0; r < submesh.Dem.GetLength(0); r++)
+        {
+            for (int c = 0; c < submesh.Dem.GetLength(1); c++)
+            {
+                float a = submesh.Dem[r, c], b = wholeBlock.Dem[r, c];
+                if (float.IsNaN(a) || float.IsNaN(b)) continue;
+                compared++;
+                if (Math.Abs(a - b) <= 0.5f) agree++;
+            }
+        }
+
+        Assert.True(compared > 0, "Expected overlapping non-NaN cells to compare");
+        Assert.True(agree / (double)compared > 0.95,
+            $"Whole-block DEM should match submesh DEM for the interior tile; agreed {agree}/{compared}");
+    }
+
+    private Tile MakeTile(string dataPath, int blockEdge = 1000) => new()
     {
         Name = SampleDataHelper.TileName,
-        Common = new TileCommon(256, _tempDir, dataPath, SampleDataHelper.Version)
+        Common = new TileCommon(256, _tempDir, dataPath, SampleDataHelper.Version,
+            tileScheme: null, outputEdgeLength: 1000, blockEdgeLength: blockEdge, sourceEdgeLength: 3000)
     };
 }
