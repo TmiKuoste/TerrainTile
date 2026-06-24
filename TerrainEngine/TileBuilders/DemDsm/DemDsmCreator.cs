@@ -71,24 +71,34 @@ namespace Kuoste.TerrainEngine.TileBuilders.DemDsm
             int iSourceMinX = (int)Math.Round(boundsSource.MinX);
             int iSourceMinY = (int)Math.Round(boundsSource.MinY);
 
-            // --- Output grids: one overlapping 1 km grid per output tile in the source (always). ---
+            // --- Output grids: one overlapping output-size grid per output tile in the source (always). ---
             int iTilesPerEdge = iSourceEdge / iOutputEdge;
             int iTileCount = iTilesPerEdge * iTilesPerEdge;
 
             VoxelGrid[] grids = new VoxelGrid[iTileCount];
-            Envelope[] gridExtents = new Envelope[iTileCount];
+            Envelope[] gridExtents = new Envelope[iTileCount];   // with overlap — for point distribution
+            Envelope[] gridCores = new Envelope[iTileCount];     // without overlap — the rendered tile
+            string[] gridNames = new string[iTileCount];
             List<bool[,]> lockedCells = new();
 
-            for (int i = 0; i < iTileCount; i++)
+            for (int ty = 0; ty < iTilesPerEdge; ty++)
             {
-                // NLS (Maanmittauslaitos) style name of a 1x1 km2 output tile.
-                string sTileName = sSourceTileName + "_" + (i + 1).ToString();
-                Envelope extent = tile.Common.TileScheme.Decode(sTileName);
-                extent.ExpandBy(_iOverlapInMeters);
+                for (int tx = 0; tx < iTilesPerEdge; tx++)
+                {
+                    int i = ty * iTilesPerEdge + tx;
+                    int tileMinX = iSourceMinX + tx * iOutputEdge;
+                    int tileMinY = iSourceMinY + ty * iOutputEdge;
 
-                grids[i] = VoxelGrid.CreateGrid(_iTotalEdgeLengthInPixels, _iTotalEdgeLengthInPixels, extent);
-                gridExtents[i] = extent;
-                lockedCells.Add(new bool[_iTotalEdgeLengthInPixels, _iTotalEdgeLengthInPixels]);
+                    gridCores[i] = new Envelope(tileMinX, tileMinX + iOutputEdge, tileMinY, tileMinY + iOutputEdge);
+                    gridNames[i] = tile.Common.TileScheme.Encode(tileMinX + iOutputEdge / 2, tileMinY + iOutputEdge / 2, iOutputEdge);
+
+                    Envelope extent = new(gridCores[i]);
+                    extent.ExpandBy(_iOverlapInMeters);
+                    gridExtents[i] = extent;
+
+                    grids[i] = VoxelGrid.CreateGrid(_iTotalEdgeLengthInPixels, _iTotalEdgeLengthInPixels, extent);
+                    lockedCells.Add(new bool[_iTotalEdgeLengthInPixels, _iTotalEdgeLengthInPixels]);
+                }
             }
 
             // --- Triangulation blocks: the whole source as one block when BlockEdgeLength >= source
@@ -125,25 +135,23 @@ namespace Kuoste.TerrainEngine.TileBuilders.DemDsm
             int[] gridBlock = new int[iTileCount];
             for (int i = 0; i < iTileCount; i++)
             {
-                Coordinate c = tile.Common.TileScheme.Decode(sSourceTileName + "_" + (i + 1).ToString()).Centre;
+                Coordinate c = gridCores[i].Centre;
                 for (int b = 0; b < iBlockCount; b++)
                 {
                     if (blockCores[b].Contains(c.X, c.Y)) { gridBlock[i] = b; break; }
                 }
             }
 
-            // --- Distribute points by bounding box (replaces the per-submesh overlap juggling). ---
-            foreach (LasPoint p in reader.Points())
+            // --- Distribute a point by bounding box (replaces the per-submesh overlap juggling). ---
+            // Used for the source's own points and for neighbour halo-band points alike.
+            void Distribute(LasPoint p)
             {
-                if (IsCancellationRequested())
-                    return new();
-
                 if (p.classification != (byte)PointCloud05p.Classes.LowVegetation &&
                     p.classification != (byte)PointCloud05p.Classes.MedVegetation &&
                     p.classification != (byte)PointCloud05p.Classes.HighVegetation &&
                     p.classification != (byte)PointCloud05p.Classes.Ground)
                 {
-                    continue;
+                    return;
                 }
 
                 bool bIsGround = p.classification == (byte)PointCloud05p.Classes.Ground;
@@ -176,9 +184,75 @@ namespace Kuoste.TerrainEngine.TileBuilders.DemDsm
                 }
             }
 
+            bool bSeam = tile.Common.SeamMode != SeamMode.None;
+            int iSourceMaxX = iSourceMinX + iSourceEdge;
+            int iSourceMaxY = iSourceMinY + iSourceEdge;
+
+            // Ground points within the overlap of any source edge form this tile's halo frame,
+            // shared with neighbouring source tiles to close the cross-source seam.
+            List<LasPoint> ownFrame = new();
+
+            foreach (LasPoint p in reader.Points())
+            {
+                if (IsCancellationRequested())
+                    return new();
+
+                Distribute(p);
+
+                if (bSeam && p.classification == (byte)PointCloud05p.Classes.Ground &&
+                    (p.x < iSourceMinX + _iOverlapInMeters || p.x >= iSourceMaxX - _iOverlapInMeters ||
+                     p.y < iSourceMinY + _iOverlapInMeters || p.y >= iSourceMaxY - _iOverlapInMeters))
+                {
+                    ownFrame.Add(p);
+                }
+            }
+
             reader.CloseReader();
             sw.Stop();
             Logger.LogDebug($"Source {sSourceTileName} read into {iTileCount} grids and {iBlockCount} block triangulation(s) in {sw.Elapsed.TotalSeconds} s.");
+
+            // --- Cross-source seam halo: write this source's frame, consume neighbours' frames. ---
+            if (bSeam)
+            {
+                string sOwnBand = Path.Combine(tile.Common.DirectoryIntermediate, IHaloBuilder.Filename(sSourceTileName, tile.Common.Version));
+                HaloBandWriter.Write(sFilename, sOwnBand, ownFrame, boundsSource);
+
+                foreach (string sNeighbour in tile.Common.TileScheme.Neighbors(sSourceTileName))
+                {
+                    if (IsCancellationRequested())
+                        return new();
+
+                    string sNeighbourBand = Path.Combine(tile.Common.DirectoryIntermediate, IHaloBuilder.Filename(sNeighbour, tile.Common.Version));
+
+                    if (false == File.Exists(sNeighbourBand))
+                    {
+                        // SinglePass only consumes halos that already exist; TwoPass extracts a
+                        // missing neighbour's halo on demand so build order doesn't matter.
+                        if (tile.Common.SeamMode != SeamMode.TwoPass)
+                            continue;
+
+                        string sNeighbourLaz = Path.Combine(tile.Common.DirectoryOriginal, sNeighbour + ".laz");
+                        if (false == File.Exists(sNeighbourLaz))
+                            continue;
+
+                        HaloBandWriter.ExtractFrameToBand(sNeighbourLaz, tile.Common.TileScheme.Decode(sNeighbour), _iOverlapInMeters, sNeighbourBand);
+                    }
+
+                    ILasFileReader bandReader = new LasZipNetReader();
+                    bandReader.ReadHeader(sNeighbourBand);
+                    bandReader.OpenReader(sNeighbourBand);
+
+                    foreach (LasPoint bp in bandReader.Points())
+                    {
+                        if (IsCancellationRequested())
+                            return new();
+
+                        Distribute(bp);
+                    }
+
+                    bandReader.CloseReader();
+                }
+            }
 
             // --- Triangulate each block, rasterise its output grids, then free it (low peak memory). ---
             for (int b = 0; b < iBlockCount; b++)
@@ -203,7 +277,7 @@ namespace Kuoste.TerrainEngine.TileBuilders.DemDsm
                     if (gridBlock[i] != b)
                         continue;
 
-                    Envelope env = tile.Common.TileScheme.Decode(sSourceTileName + "_" + (i + 1).ToString());
+                    Envelope env = new(gridCores[i]);
 
                     grids[i].SortAndTrim();
 
@@ -218,7 +292,7 @@ namespace Kuoste.TerrainEngine.TileBuilders.DemDsm
                     request.LockedCells = lockedCells[i];
                     tri.RasteriseDem(request);
 
-                    Logger.LogDebug($"Rasterised {sSourceTileName}_{i + 1} from block {b}. Empty cells {iMissBefore} -> {iMissAfter}.");
+                    Logger.LogDebug($"Rasterised {gridNames[i]} from block {b}. Empty cells {iMissBefore} -> {iMissAfter}.");
                 }
 
                 tri.Clear();
@@ -233,10 +307,9 @@ namespace Kuoste.TerrainEngine.TileBuilders.DemDsm
                 if (IsCancellationRequested())
                     return new();
 
-                string sTileName = sSourceTileName + "_" + (i + 1).ToString();
-                grids[i].Serialize(Path.Combine(tile.Common.DirectoryIntermediate, IDemDsmBuilder.Filename(sTileName, tile.Common.Version)));
+                grids[i].Serialize(Path.Combine(tile.Common.DirectoryIntermediate, IDemDsmBuilder.Filename(gridNames[i], tile.Common.Version)));
 
-                if (tile.Name == sTileName)
+                if (tile.Name == gridNames[i])
                     output = grids[i];
             }
 
