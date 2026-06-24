@@ -1,0 +1,40 @@
+name: .NET tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Cancel superseded runs on the same branch/PR.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: TerrainEngine test suite
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj') }}
+          restore-keys: nuget-${{ runner.os }}-
+
+      - name: Restore
+        run: dotnet restore TerrainEngine/TerrainEngine.sln
+
+      # Debug config so the Release-only DLL-vendoring target stays out of CI.
+      # The integration tests read the committed Helsinki sample .laz from the repo.
+      - name: Test
+        run: dotnet test TerrainEngine/TerrainEngine.sln -c Debug --no-restore --logger "console;verbosity=normal"
