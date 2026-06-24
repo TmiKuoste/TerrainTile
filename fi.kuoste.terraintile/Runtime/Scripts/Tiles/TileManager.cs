@@ -150,11 +150,11 @@ namespace Kuoste.TerrainTile.Tiles
 
         private void AddTilesInBounds(ITileBuilderService DsmPointCloudService, ITileBuilderService RasterService, ITileBuilderService GeometryService, TileCommon common, Envelope bounds)
         {
-            for (int x = (int)bounds.MinX; x < bounds.MaxX; x += TileCommon.EdgeLength)
+            for (int x = (int)bounds.MinX; x < bounds.MaxX; x += common.OutputEdgeLength)
             {
-                for (int y = (int)bounds.MinY; y < bounds.MaxY; y += TileCommon.EdgeLength)
+                for (int y = (int)bounds.MinY; y < bounds.MaxY; y += common.OutputEdgeLength)
                 {
-                    string sTileName = TileNamer.Encode(x, y, TileCommon.EdgeLength);
+                    string sTileName = TileNamer.Encode(x, y, common.OutputEdgeLength);
 
                     Tile t = new()
                     {

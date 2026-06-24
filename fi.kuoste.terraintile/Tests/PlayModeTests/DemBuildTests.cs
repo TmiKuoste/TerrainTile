@@ -17,6 +17,9 @@ public class DemBuildTests : MonoBehaviour
     private const int _iEdgeSkip = 100;
     private const int _MaxHeightDiffPerTileEdgeAvg = 10;
 
+    // The sample scene renders the default 1 km output tiles; the edge-continuity check steps over them.
+    private const int OutputEdgeMeters = 1000;
+
     [OneTimeSetUp]
     public void OneTimeSetup()
     {
@@ -42,23 +45,23 @@ public class DemBuildTests : MonoBehaviour
         int iTileCount = 0;
 
         // Can cast to int because here the bounds are always integers
-        for (int x = (int)bounds.MinX; x < (int)bounds.MaxX; x += TileCommon.EdgeLength)
+        for (int x = (int)bounds.MinX; x < (int)bounds.MaxX; x += OutputEdgeMeters)
         {
-            for (int y = (int)bounds.MinY; y < (int)bounds.MaxY; y += TileCommon.EdgeLength)
+            for (int y = (int)bounds.MinY; y < (int)bounds.MaxY; y += OutputEdgeMeters)
             {
                 TerrainData terrainData = GetTerrainDataByCoordinate(x, y);
 
                 // Get next tile towards north, if available
-                if (y + TileCommon.EdgeLength < bounds.MaxY)
+                if (y + OutputEdgeMeters < bounds.MaxY)
                 { 
-                    TerrainData terrainDataNorth = GetTerrainDataByCoordinate(x, y + TileCommon.EdgeLength);
+                    TerrainData terrainDataNorth = GetTerrainDataByCoordinate(x, y + OutputEdgeMeters);
 
                     int xxStart = 0;
                     if (x == (int)bounds.MinX)
                         xxStart += _iEdgeSkip;
 
                     int xxStop = terrainData.heightmapResolution;
-                    if (x == (int)bounds.MaxX - TileCommon.EdgeLength)
+                    if (x == (int)bounds.MaxX - OutputEdgeMeters)
                         xxStop -= _iEdgeSkip;
 
                     float fHeightDiff = 0.0f;
@@ -79,16 +82,16 @@ public class DemBuildTests : MonoBehaviour
                 }
 
                 // Get next tile towards east, if available
-                if (x + TileCommon.EdgeLength < bounds.MaxX)
+                if (x + OutputEdgeMeters < bounds.MaxX)
                 {
-                    TerrainData terrainDataEast = GetTerrainDataByCoordinate(x + TileCommon.EdgeLength, y);
+                    TerrainData terrainDataEast = GetTerrainDataByCoordinate(x + OutputEdgeMeters, y);
 
                     int yyStart = 0;
                     if (y == (int)bounds.MinY)
                         yyStart += _iEdgeSkip;
 
                     int yyStop = terrainData.heightmapResolution;
-                    if (y == (int)bounds.MaxY - TileCommon.EdgeLength)
+                    if (y == (int)bounds.MaxY - OutputEdgeMeters)
                         yyStop -= _iEdgeSkip;
 
                     float fHeightDiff = 0.0f;
@@ -115,7 +118,7 @@ public class DemBuildTests : MonoBehaviour
 
     private static TerrainData GetTerrainDataByCoordinate(int x, int y)
     {
-        string sTileName1km = TileNamer.Encode(x, y, TileCommon.EdgeLength);
+        string sTileName1km = TileNamer.Encode(x, y, OutputEdgeMeters);
         GameObject goTile = GameObject.Find(sTileName1km);
 
         if (goTile == null)

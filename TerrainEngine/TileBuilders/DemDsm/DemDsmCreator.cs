@@ -10,29 +10,27 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
-using System.Threading;
 
 namespace Kuoste.TerrainEngine.TileBuilders.DemDsm
 {
     public class DemDsmCreator : Builder, IDemDsmBuilder
     {
         /// <summary>
-        /// Use some overlap in triangulations or else the triangulations won't be complete on edges
+        /// Overlap (m) added around each output grid and triangulation block so adjacent blocks /
+        /// output tiles don't gap on their shared edges. 42 m for the historical 1084 m / 1000 m grids.
         /// </summary>
-        // 1000 = the legacy 1 km submesh size; this overlap/submesh mechanism is rewritten in Phase 3 (block triangulation).
         const int _iOverlapInMeters = (_iTotalEdgeLengthInMeters - 1000) / 2;
 
-        /// <summary>
-        /// Total triangulation edge length
-        /// </summary>
+        /// <summary>Edge length (m) of a 1 km output grid including overlap.</summary>
         const int _iTotalEdgeLengthInMeters = 1084;
 
+        /// <summary>Pixel resolution of a 1 km output grid (incl. overlap).</summary>
         const int _iTotalEdgeLengthInPixels = 1110;
 
         /// <summary>
-        /// Keep track of the las files so that we don't try to process the same tile multiple times.
+        /// Keep track of the source las files so we don't process the same source tile multiple times.
         /// </summary>
-        private readonly ConcurrentDictionary<string, bool> _3kmDemDsmDone = new();
+        private readonly ConcurrentDictionary<string, bool> _sourceDemDsmDone = new();
 
         public VoxelGrid Build(Tile tile)
         {
@@ -41,16 +39,15 @@ namespace Kuoste.TerrainEngine.TileBuilders.DemDsm
 
             int iOutputEdge = tile.Common.OutputEdgeLength;
 
-            Envelope bounds1km = tile.Common.TileScheme.Decode(tile.Name);
-            string s3km3kmTileName = tile.Common.TileScheme.Encode(bounds1km.MinX, bounds1km.MinY, tile.Common.SourceEdgeLength);
-            Envelope bounds3km = tile.Common.TileScheme.Decode(s3km3kmTileName);
+            Envelope boundsOutput = tile.Common.TileScheme.Decode(tile.Name);
+            string sSourceTileName = tile.Common.TileScheme.Encode(boundsOutput.MinX, boundsOutput.MinY, tile.Common.SourceEdgeLength);
+            Envelope boundsSource = tile.Common.TileScheme.Decode(sSourceTileName);
 
-            // Check if the tile is already being processed
-            if (true == _3kmDemDsmDone.TryGetValue(s3km3kmTileName, out bool bIsCompleted))
+            // Check if the source tile is already being processed
+            if (true == _sourceDemDsmDone.TryGetValue(sSourceTileName, out bool bIsCompleted))
             {
                 if (bIsCompleted)
                 {
-                    // Las file is already processed, so just update the tile.
                     Logger.LogInfo($"DemAndDsmPointCloud for {tile.Name} is already completed.");
                     return VoxelGrid.Deserialize(Path.Combine(tile.Common.DirectoryIntermediate, IDemDsmBuilder.Filename(tile.Name, tile.Common.Version)));
                 }
@@ -61,41 +58,81 @@ namespace Kuoste.TerrainEngine.TileBuilders.DemDsm
                 }
             }
 
-            _3kmDemDsmDone.TryAdd(s3km3kmTileName, false);
+            _sourceDemDsmDone.TryAdd(sSourceTileName, false);
 
             ILasFileReader reader = new LasZipNetReader();
-
-            string sFilename = Path.Combine(tile.Common.DirectoryOriginal, s3km3kmTileName + ".laz");
-
+            string sFilename = Path.Combine(tile.Common.DirectoryOriginal, sSourceTileName + ".laz");
             reader.ReadHeader(sFilename);
 
             Stopwatch sw = Stopwatch.StartNew();
-
             reader.OpenReader(sFilename);
 
-            int iSubmeshesPerEdge = (int)Math.Round((reader.MaxX - reader.MinX) / iOutputEdge);
-            int iSubmeshCount = (int)Math.Pow(iSubmeshesPerEdge, 2);
+            int iSourceEdge = (int)Math.Round(reader.MaxX - reader.MinX);
+            int iSourceMinX = (int)Math.Round(boundsSource.MinX);
+            int iSourceMinY = (int)Math.Round(boundsSource.MinY);
 
-            SurfaceTriangulation[] triangulations = new SurfaceTriangulation[iSubmeshCount];
-            VoxelGrid[] grids = new VoxelGrid[iSubmeshCount];
+            // --- Output grids: one overlapping 1 km grid per output tile in the source (always). ---
+            int iTilesPerEdge = iSourceEdge / iOutputEdge;
+            int iTileCount = iTilesPerEdge * iTilesPerEdge;
+
+            VoxelGrid[] grids = new VoxelGrid[iTileCount];
+            Envelope[] gridExtents = new Envelope[iTileCount];
             List<bool[,]> lockedCells = new();
 
-            for (int i = 0; i < iSubmeshCount; i++)
+            for (int i = 0; i < iTileCount; i++)
             {
-                // Create the NLS (Maanmittauslaitos) style name of a 1x1 km2 tile in order to get the coordinates.
-                string sSubmeshName = s3km3kmTileName + "_" + (i + 1).ToString();
-                Envelope extent = tile.Common.TileScheme.Decode(sSubmeshName);
-
+                // NLS (Maanmittauslaitos) style name of a 1x1 km2 output tile.
+                string sTileName = sSourceTileName + "_" + (i + 1).ToString();
+                Envelope extent = tile.Common.TileScheme.Decode(sTileName);
                 extent.ExpandBy(_iOverlapInMeters);
 
                 grids[i] = VoxelGrid.CreateGrid(_iTotalEdgeLengthInPixels, _iTotalEdgeLengthInPixels, extent);
-
-                triangulations[i] = new SurfaceTriangulation(_iTotalEdgeLengthInMeters, _iTotalEdgeLengthInMeters,
-                    extent.MinX, extent.MinY, extent.MaxX, extent.MaxY);
-
+                gridExtents[i] = extent;
                 lockedCells.Add(new bool[_iTotalEdgeLengthInPixels, _iTotalEdgeLengthInPixels]);
             }
 
+            // --- Triangulation blocks: the whole source as one block when BlockEdgeLength >= source
+            //     (no internal seams), else one block per output tile (the cheap low-mem path). ---
+            bool bWholeBlock = tile.Common.BlockEdgeLength >= iSourceEdge;
+            int iBlockEdge = bWholeBlock ? iSourceEdge : iOutputEdge;
+            int iBlocksPerEdge = iSourceEdge / iBlockEdge;
+            int iBlockCount = iBlocksPerEdge * iBlocksPerEdge;
+
+            SurfaceTriangulation[] triangulations = new SurfaceTriangulation[iBlockCount];
+            Envelope[] blockCores = new Envelope[iBlockCount];    // without overlap — for grid -> block mapping
+            Envelope[] blockExtents = new Envelope[iBlockCount];  // with overlap — for point distribution
+
+            for (int b = 0; b < iBlockCount; b++)
+            {
+                int bx = b / iBlocksPerEdge;
+                int by = b % iBlocksPerEdge;
+                int blockMinX = iSourceMinX + bx * iBlockEdge;
+                int blockMinY = iSourceMinY + by * iBlockEdge;
+
+                blockCores[b] = new Envelope(blockMinX, blockMinX + iBlockEdge, blockMinY, blockMinY + iBlockEdge);
+
+                Envelope extent = new(
+                    blockMinX - _iOverlapInMeters, blockMinX + iBlockEdge + _iOverlapInMeters,
+                    blockMinY - _iOverlapInMeters, blockMinY + iBlockEdge + _iOverlapInMeters);
+                blockExtents[b] = extent;
+
+                triangulations[b] = new SurfaceTriangulation(
+                    (int)Math.Round(extent.Width), (int)Math.Round(extent.Height),
+                    extent.MinX, extent.MinY, extent.MaxX, extent.MaxY);
+            }
+
+            // Map each output grid to the block whose core contains its tile centre.
+            int[] gridBlock = new int[iTileCount];
+            for (int i = 0; i < iTileCount; i++)
+            {
+                Coordinate c = tile.Common.TileScheme.Decode(sSourceTileName + "_" + (i + 1).ToString()).Centre;
+                for (int b = 0; b < iBlockCount; b++)
+                {
+                    if (blockCores[b].Contains(c.X, c.Y)) { gridBlock[i] = b; break; }
+                }
+            }
+
+            // --- Distribute points by bounding box (replaces the per-submesh overlap juggling). ---
             foreach (LasPoint p in reader.Points())
             {
                 if (IsCancellationRequested())
@@ -109,238 +146,102 @@ namespace Kuoste.TerrainEngine.TileBuilders.DemDsm
                     continue;
                 }
 
-                // Move coordinates to 0
-                int i3kmX = (int)(p.x - bounds3km.MinX);
-                int i3kmY = (int)(p.y - bounds3km.MinY);
+                bool bIsGround = p.classification == (byte)PointCloud05p.Classes.Ground;
 
-                AddPoint(p, iSubmeshesPerEdge, triangulations, grids, lockedCells, iOutputEdge, i3kmX, i3kmY);
-
-                // Look if point is part of another submesh overlap area.
-                // Overlap is needed because otherwise adjacent triangulated surfaces have a gap in between.
-
-                int iTileX = i3kmX % iOutputEdge;
-                int iTileY = i3kmY % iOutputEdge;
-
-                int iLowerBound = _iOverlapInMeters;
-                int iUpperBound = iOutputEdge - _iOverlapInMeters;
-                int iMoveBy = _iOverlapInMeters;
-
-                if (iTileX < iLowerBound || iTileX > iUpperBound || iTileY < iLowerBound || iTileY > iUpperBound)
+                // Add to every output grid whose (overlapping) extent contains the point.
+                for (int i = 0; i < iTileCount; i++)
                 {
-                    // This point also belongs to an overlap area of one or more other submesh.
-
-                    int iWholeMeshEdgeLength = iOutputEdge * iSubmeshesPerEdge;
-
-                    if (i3kmX < iLowerBound || i3kmX > iWholeMeshEdgeLength - iUpperBound ||
-                        i3kmY < iLowerBound || i3kmY > iWholeMeshEdgeLength - iUpperBound)
+                    Envelope e = gridExtents[i];
+                    if (p.x >= e.MinX && p.x < e.MaxX && p.y >= e.MinY && p.y < e.MaxY)
                     {
-                        // Part of another file. Todo: Save these points to four separate files
-                        // so they can be read when adjacent laz files are processed.
+                        grids[i].AddPoint(p.x, p.y, (float)p.z, p.classification, bIsGround);
 
-                        continue;
-                    }
-
-                    if (iTileX < iLowerBound)
-                    {
-                        // West
-                        AddPoint(p, iSubmeshesPerEdge, triangulations, grids, lockedCells, iOutputEdge, i3kmX - iMoveBy, i3kmY);
-
-                        if (iTileY < iLowerBound)
+                        if (bIsGround)
                         {
-                            // Southwest
-                            AddPoint(p, iSubmeshesPerEdge, triangulations, grids, lockedCells, iOutputEdge, i3kmX - iMoveBy, i3kmY - iMoveBy);
-
-                            // South
-                            AddPoint(p, iSubmeshesPerEdge, triangulations, grids, lockedCells, iOutputEdge, i3kmX, i3kmY - iMoveBy);
-                        }
-                        else if (iTileY > iUpperBound)
-                        {
-                            // Northwest
-                            AddPoint(p, iSubmeshesPerEdge, triangulations, grids, lockedCells, iOutputEdge, i3kmX - iMoveBy, i3kmY + iMoveBy);
-
-                            // North
-                            AddPoint(p, iSubmeshesPerEdge, triangulations, grids, lockedCells, iOutputEdge, i3kmX, i3kmY + iMoveBy);
+                            grids[i].GetGridIndexes(p.x, p.y, out int iRow, out int iCol);
+                            lockedCells[i][iRow, iCol] = true;
                         }
                     }
+                }
 
-                    if (iTileX > iUpperBound)
+                // Ground points feed every block triangulation whose extent strictly contains them.
+                if (bIsGround)
+                {
+                    for (int b = 0; b < iBlockCount; b++)
                     {
-                        // East
-                        AddPoint(p, iSubmeshesPerEdge, triangulations, grids, lockedCells, iOutputEdge, i3kmX + iMoveBy, i3kmY);
-
-                        if (iTileY < iLowerBound)
-                        {
-                            // Southeast
-                            AddPoint(p, iSubmeshesPerEdge, triangulations, grids, lockedCells, iOutputEdge, i3kmX + iMoveBy, i3kmY - iMoveBy);
-
-                            // South
-                            AddPoint(p, iSubmeshesPerEdge, triangulations, grids, lockedCells, iOutputEdge, i3kmX, i3kmY - iMoveBy);
-                        }
-                        else if (iTileY > iUpperBound)
-                        {
-                            // Northeast
-                            AddPoint(p, iSubmeshesPerEdge, triangulations, grids, lockedCells, iOutputEdge, i3kmX + iMoveBy, i3kmY + iMoveBy);
-
-                            // North
-                            AddPoint(p, iSubmeshesPerEdge, triangulations, grids, lockedCells, iOutputEdge, i3kmX, i3kmY + iMoveBy);
-                        }
-                    }
-
-                    if (iTileY < iLowerBound)
-                    {
-                        // South
-                        AddPoint(p, iSubmeshesPerEdge, triangulations, grids, lockedCells, iOutputEdge, i3kmX, i3kmY - iMoveBy);
-
-                        if (iTileX < iLowerBound)
-                        {
-                            // Southwest
-                            AddPoint(p, iSubmeshesPerEdge, triangulations, grids, lockedCells, iOutputEdge, i3kmX - iMoveBy, i3kmY - iMoveBy);
-
-                            // West
-                            AddPoint(p, iSubmeshesPerEdge, triangulations, grids, lockedCells, iOutputEdge, i3kmX - iMoveBy, i3kmY);
-                        }
-                        else if (iTileX > iUpperBound)
-                        {
-                            // Southeast
-                            AddPoint(p, iSubmeshesPerEdge, triangulations, grids, lockedCells, iOutputEdge, i3kmX + iMoveBy, i3kmY - iMoveBy);
-
-                            // East
-                            AddPoint(p, iSubmeshesPerEdge, triangulations, grids, lockedCells, iOutputEdge, i3kmX + iMoveBy, i3kmY);
-                        }
-                    }
-
-                    if (iTileY > iUpperBound)
-                    {
-                        // North
-                        AddPoint(p, iSubmeshesPerEdge, triangulations, grids, lockedCells, iOutputEdge, i3kmX, i3kmY + iMoveBy);
-
-                        if (iTileX < iLowerBound)
-                        {
-                            // Northwest
-                            AddPoint(p, iSubmeshesPerEdge, triangulations, grids, lockedCells, iOutputEdge, i3kmX - iMoveBy, i3kmY + iMoveBy);
-
-                            // West
-                            AddPoint(p, iSubmeshesPerEdge, triangulations, grids, lockedCells, iOutputEdge, i3kmX - iMoveBy, i3kmY);
-                        }
-                        else if (iTileX > iUpperBound)
-                        {
-                            // Northeast
-                            AddPoint(p, iSubmeshesPerEdge, triangulations, grids, lockedCells, iOutputEdge, i3kmX + iMoveBy, i3kmY + iMoveBy);
-
-                            // East
-                            AddPoint(p, iSubmeshesPerEdge, triangulations, grids, lockedCells, iOutputEdge, i3kmX + iMoveBy, i3kmY);
-                        }
+                        Envelope e = blockExtents[b];
+                        if (p.x > e.MinX && p.x < e.MaxX && p.y > e.MinY && p.y < e.MaxY)
+                            triangulations[b].AddPoint(p);
                     }
                 }
             }
 
             reader.CloseReader();
-
             sw.Stop();
-            Logger.LogDebug($"Tile {s3km3kmTileName} was read to grid and triangulations in {sw.Elapsed.TotalSeconds} seconds.");
+            Logger.LogDebug($"Source {sSourceTileName} read into {iTileCount} grids and {iBlockCount} block triangulation(s) in {sw.Elapsed.TotalSeconds} s.");
 
-            for (int i = 0; i < iSubmeshCount; i++)
+            // --- Triangulate each block, rasterise its output grids, then free it (low peak memory). ---
+            for (int b = 0; b < iBlockCount; b++)
             {
                 if (IsCancellationRequested())
                     return new();
 
-                Stopwatch sw2 = Stopwatch.StartNew();
-
-                // Use the name of a 1x1 km2 tile to get the coordinates
-                string sSubmeshName = s3km3kmTileName + "_" + (i + 1).ToString();
-                Envelope env = tile.Common.TileScheme.Decode(sSubmeshName);
-
-                SurfaceTriangulation tri = triangulations[i];
-                VoxelGrid grid = grids[i];
+                SurfaceTriangulation tri = triangulations[b];
 
                 if (tri.PointCount < 10)
                 {
-                    Logger.LogWarning($"Not enough points for triangulating {sSubmeshName}");
+                    Logger.LogWarning($"Not enough points for triangulating block {b} of {sSourceTileName}");
+                    tri.Clear();
                     continue;
                 }
 
-                grid.SortAndTrim();
-
+                Stopwatch sw2 = Stopwatch.StartNew();
                 tri.Create();
 
+                for (int i = 0; i < iTileCount; i++)
+                {
+                    if (gridBlock[i] != b)
+                        continue;
 
-                // Cannot use full overlap because triangulation is not complete on edges
-                env.ExpandBy(_iOverlapInMeters / 2);
+                    Envelope env = tile.Common.TileScheme.Decode(sSourceTileName + "_" + (i + 1).ToString());
 
-                grid.SetMissingHeightsFromTriangulation(tri,
-                    (int)env.MinX, (int)env.MinY, (int)env.MaxX, (int)env.MaxY,
-                    out int iMissBefore, out int iMissAfter);
+                    grids[i].SortAndTrim();
 
-                RasteriseDemRequest request = new(grid.Dem, grid.Bounds);
-                request.LockedCells = lockedCells[i];
-                tri.RasteriseDem(request);
+                    // Cannot use full overlap because triangulation is not complete on edges
+                    env.ExpandBy(_iOverlapInMeters / 2);
 
-                // Free triangulation asap so we dont run out of memory.
+                    grids[i].SetMissingHeightsFromTriangulation(tri,
+                        (int)env.MinX, (int)env.MinY, (int)env.MaxX, (int)env.MaxY,
+                        out int iMissBefore, out int iMissAfter);
+
+                    RasteriseDemRequest request = new(grids[i].Dem, grids[i].Bounds);
+                    request.LockedCells = lockedCells[i];
+                    tri.RasteriseDem(request);
+
+                    Logger.LogDebug($"Rasterised {sSourceTileName}_{i + 1} from block {b}. Empty cells {iMissBefore} -> {iMissAfter}.");
+                }
+
                 tri.Clear();
-
                 sw2.Stop();
-
-                Logger.LogDebug($"Triangulating {sSubmeshName} took {sw2.Elapsed.TotalSeconds} s. " +
-                    $"Empty cells before {iMissBefore}, after {iMissAfter}.");
+                Logger.LogDebug($"Block {b} of {sSourceTileName} triangulated in {sw2.Elapsed.TotalSeconds} s.");
             }
 
+            // --- Serialize all output grids. ---
             VoxelGrid output = new();
-
-            for (int i = 0; i < iSubmeshCount; i++)
+            for (int i = 0; i < iTileCount; i++)
             {
                 if (IsCancellationRequested())
                     return new();
 
-                string s1km1kmTilename = s3km3kmTileName + "_" + (i + 1).ToString();
+                string sTileName = sSourceTileName + "_" + (i + 1).ToString();
+                grids[i].Serialize(Path.Combine(tile.Common.DirectoryIntermediate, IDemDsmBuilder.Filename(sTileName, tile.Common.Version)));
 
-                // Save grid to filesystem for future use
-                grids[i].Serialize(Path.Combine(tile.Common.DirectoryIntermediate, IDemDsmBuilder.Filename(s1km1kmTilename, tile.Common.Version)));
-
-                //grids[i].WriteDemAsAscii(Path.Combine(tile.DirectoryIntermediate, s1km1kmTilename + ".asc"));
-
-                if (tile.Name == s1km1kmTilename)
-                {
+                if (tile.Name == sTileName)
                     output = grids[i];
-                }
             }
 
-            //sw.Stop();
-            //Debug.Log($"Las processing finished! Total time for tile {s3km3kmTileName} was {sw.Elapsed.TotalSeconds} seconds.");
-
-            _3kmDemDsmDone.TryUpdate(s3km3kmTileName, true, false);
+            _sourceDemDsmDone.TryUpdate(sSourceTileName, true, false);
             return output;
-
-        }
-
-        private static void AddPoint(
-            LasPoint p, 
-            int iSubmeshesPerEdge,
-            ITriangulation[] triangulations, 
-            VoxelGrid[] grids,
-            List<bool[,]> lockedCells,
-            int iOutputEdge,
-            int x,
-            int y)
-        {
-            int ix = x / iOutputEdge;
-            int iy = y / iOutputEdge;
-
-            if (ix < 0 || ix >= iSubmeshesPerEdge || iy < 0 || iy >= iSubmeshesPerEdge)
-            {
-                throw new Exception($"Coordinates of a point (x={p.x}, y={p.y} are out of bounds");
-            }
-
-            int iSubmeshIndex = ix * iSubmeshesPerEdge + iy;
-            bool bIsGround = p.classification == (byte)PointCloud05p.Classes.Ground;
-
-            grids[iSubmeshIndex].AddPoint(p.x, p.y, (float)p.z, p.classification, bIsGround);
-
-            if (bIsGround)
-            {
-                triangulations[iSubmeshIndex].AddPoint(p);
-                grids[iSubmeshIndex].GetGridIndexes(p.x, p.y, out int iRow, out int iCol);
-                lockedCells[iSubmeshIndex][iRow, iCol] = true;
-            }
         }
     }
 }
