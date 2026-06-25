@@ -117,10 +117,15 @@ namespace Kuoste.TerrainTile.Tiles
             TerrainData terrainData = TerrainTemplate.GetComponent<Terrain>().terrainData;
             _heightmapScale = terrainData.heightmapScale;
             TileCommon common = new(
-                terrainData.alphamapResolution,
-                Path.GetFullPath(DataDirectoryIntermediate), 
-                Path.GetFullPath(DataDirectoryOriginal),
-                _sVersion);
+                alphamapResolution: terrainData.alphamapResolution,
+                directoryIntermediate: Path.GetFullPath(DataDirectoryIntermediate),
+                directoryOriginal: Path.GetFullPath(DataDirectoryOriginal),
+                version: _sVersion,
+                tileScheme: null,                 // NLS map-sheet scheme
+                outputEdgeLength: 1000,           // 1 km Unity terrain tiles
+                blockEdgeLength: 3000,            // whole-block: triangulate the 3 km source as one block
+                sourceEdgeLength: 3000,           // 3 km .laz source tiles
+                seamMode: SeamMode.SinglePass);   // write own halo, consume existing neighbour halos
 
             if (string.IsNullOrEmpty(RenderedArea))
             {
