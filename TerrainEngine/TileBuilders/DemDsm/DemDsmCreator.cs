@@ -108,6 +108,9 @@ namespace Kuoste.TerrainEngine.TileBuilders.DemDsm
             int iBlocksPerEdge = iSourceEdge / iBlockEdge;
             int iBlockCount = iBlocksPerEdge * iBlocksPerEdge;
 
+            Logger.LogInfo($"Building source {sSourceTileName} ({iSourceEdge} m): {iTileCount} output tile(s) of {iOutputEdge} m, " +
+                $"{iBlockCount} triangulation block(s) of {iBlockEdge} m ({(bWholeBlock ? "whole-block" : "submesh")}), SeamMode {tile.Common.SeamMode}.");
+
             SurfaceTriangulation[] triangulations = new SurfaceTriangulation[iBlockCount];
             Envelope[] blockCores = new Envelope[iBlockCount];    // without overlap — for grid -> block mapping
             Envelope[] blockExtents = new Envelope[iBlockCount];  // with overlap — for point distribution
@@ -216,6 +219,9 @@ namespace Kuoste.TerrainEngine.TileBuilders.DemDsm
             {
                 string sOwnBand = Path.Combine(tile.Common.DirectoryIntermediate, IHaloBuilder.Filename(sSourceTileName, tile.Common.Version));
                 HaloBandWriter.Write(sFilename, sOwnBand, ownFrame, boundsSource);
+                Logger.LogInfo($"Halo [{tile.Common.SeamMode}]: wrote {ownFrame.Count} ground points for {sSourceTileName} -> {Path.GetFileName(sOwnBand)}");
+
+                int iNeighboursConsumed = 0;
 
                 foreach (string sNeighbour in tile.Common.TileScheme.Neighbors(sSourceTileName))
                 {
@@ -229,29 +235,42 @@ namespace Kuoste.TerrainEngine.TileBuilders.DemDsm
                         // SinglePass only consumes halos that already exist; TwoPass extracts a
                         // missing neighbour's halo on demand so build order doesn't matter.
                         if (tile.Common.SeamMode != SeamMode.TwoPass)
+                        {
+                            Logger.LogDebug($"Halo: no band for neighbour {sNeighbour}; skipping ({tile.Common.SeamMode}).");
                             continue;
+                        }
 
                         string sNeighbourLaz = Path.Combine(tile.Common.DirectoryOriginal, sNeighbour + ".laz");
                         if (false == File.Exists(sNeighbourLaz))
+                        {
+                            Logger.LogDebug($"Halo: neighbour {sNeighbour} has neither band nor source .laz; skipping.");
                             continue;
+                        }
 
                         HaloBandWriter.ExtractFrameToBand(sNeighbourLaz, tile.Common.TileScheme.Decode(sNeighbour), _iOverlapInMeters, sNeighbourBand);
+                        Logger.LogInfo($"Halo [TwoPass]: extracted missing band for neighbour {sNeighbour} on demand -> {Path.GetFileName(sNeighbourBand)}");
                     }
 
                     ILasFileReader bandReader = new LasZipNetReader();
                     bandReader.ReadHeader(sNeighbourBand);
                     bandReader.OpenReader(sNeighbourBand);
 
+                    int iPointsFromNeighbour = 0;
                     foreach (LasPoint bp in bandReader.Points())
                     {
                         if (IsCancellationRequested())
                             return new();
 
                         Distribute(bp);
+                        iPointsFromNeighbour++;
                     }
 
                     bandReader.CloseReader();
+                    iNeighboursConsumed++;
+                    Logger.LogInfo($"Halo: {sSourceTileName} consumed {iPointsFromNeighbour} points from neighbour {sNeighbour}.");
                 }
+
+                Logger.LogInfo($"Halo: {sSourceTileName} consumed halos from {iNeighboursConsumed} neighbour(s).");
             }
 
             // --- Triangulate each block, rasterise its output grids, then free it (low peak memory). ---
