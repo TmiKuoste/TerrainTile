@@ -1,7 +1,9 @@
 # Terrain triangulation generalization — draft plan
 
-> Status: **draft, iterating**. Started 2026-06-15 on branch `39-add-terrainengine-tests` (planning only; no code yet).
-> This is a design/planning doc, not a commitment. See also memory `project_terrain_generalization`.
+> Status: **living doc**. Started 2026-06-15; updated 2026-07-03 after Phases 1–3 & 5 landed
+> (#42, #46, #48, PR #51) and a design review of the shipped code (seam semantics revised,
+> Phase 7 upgraded, robustness notes added). Not a commitment.
+> See also memory `project_terrain_generalization`.
 
 ## Goal
 
@@ -59,11 +61,27 @@ Decoupling these three is the foundation for all five goals.
 - **Configurable, arbitrary output size** — `2^n` m (e.g. 1024 → 1025 heightmap, no resample) is a
   *Unity profile*, not a core constraint. Fixes the 1000→1025 heightmap aliasing. Output gets its own
   naming scheme, decoupled from NLS source tiling.
-- **Seams via write-behind halo bands** — on ingest, extract thin ground-point bands per neighbour
-  edge/corner (via `ITileScheme.Neighbors()`), persist as MessagePack sidecars, consume when the
-  neighbour block builds. License-clean and robust to file ordering.
-- **COPC set aside** — not a drop-in win (see findings). A custom chunk-interval index is an *optional*
-  general capability, not required for seams.
+- **Seams via halo edge-frames — LANDED (PR #51), semantics revised.** Implemented as small `.laz`
+  sidecars (header copied from the source so coordinates round-trip; not MessagePack), extracted
+  during the build's own read (no extra IO), behind a `SeamMode`:
+  - `SinglePass` — write own frame, consume bands that already exist. **Not order-robust on a first
+    build**: the first-built side of a boundary rasterises its edge without the neighbour's points
+    and is never revisited, so the seam survives. An incremental/rebuild mode only.
+  - `TwoPass` — extract a missing neighbour's frame on demand: seams close regardless of build
+    order, but extraction reads the **whole** neighbour `.laz` for a 42 m frame → **~2× point-cloud
+    IO** over an area. **Current default** (correct on first display in Unity).
+  - Planned: **deferred seam fix-up pass (#53)** — SinglePass IO plus a cheap edge-strip
+    re-rasterisation from the two persisted frames once both exist. Best for batch/cloud builds and
+    incremental area growth; Unity interactive stays TwoPass (a rewritten cached tile would need a
+    "tile updated" hook in `TileUpdater`).
+  - Scope: bands are **ground-only** — the DEM seam closes, the DSM/vegetation seam does not (edge
+    trees near source boundaries see truncated neighbourhoods). Accepted for now.
+- **COPC set aside; the custom chunk-interval index is upgraded from optional to wanted.** COPC stays
+  out (worse for chunk pruning). The index now earns its keep three ways: (1) TwoPass halo extraction
+  drops from reading 100 % of a neighbour `.laz` to ~10–20 % (probe data below); (2) it can **replace
+  the persisted voxelgrid** — tree/building Creators re-read points spatially from the indexed `.laz`
+  on demand instead of deserializing a point dump (ties into A3/#43); (3) general spatial reads for
+  any other use of the las files.
 
 ## Empirical findings (probe over `D:\data` Helsinki L4133, 0.5 pts/m²)
 
@@ -106,13 +124,15 @@ Each phase builds & tests green on its own; biggest blast radius last.
   `SetMissingHeightsFromTriangulation` works at 3 km when the grid/triangulation use **integer-aligned
   bounds** (`Floor`/`Ceil`); the earlier throw was a probe bug. Just use that call pattern in
   `DemDsmCreator` — no LasUtility change, no re-vendor.
-- **Phase 1 — `ITileScheme`, zero behaviour change.** New interface; `NlsTileScheme` wraps `TileNamer`;
-  route `DemDsmCreator`, `TileManager`, BuilderServices through it, still NLS 1/3 km. Pure refactor,
-  existing tests green. *Propose interface shape for review before wiring (repo "ask before restructure"
-  rule).*
-- **Phase 2 — Decouple the three sizes in config.** Retire the `EdgeLength` global const; carry output
-  size + block size on `TileCommon`/`Tile`. Defaults reproduce today's behaviour.
-- **Phase 3 — Block-size knob via bbox distribution (KEEP the submesh capability).** Replace the
+- **Phase 1 — DONE (#42, PR #45).** `ITileScheme`; `NlsTileScheme` wraps `TileNamer`; builders routed
+  through it, zero behaviour change.
+- **Phase 2 — DONE (#46, PR #47).** Output / block / source edge lengths carried on `TileCommon`;
+  `EdgeLength` global retired.
+- **Phase 3 — DONE (#48, PR #49), with a simplification:** the knob landed **binary** — whole-block
+  when `BlockEdgeLength >= SourceEdgeLength`, else one block per output tile — not the general
+  `N = (Source/Block)²` grid described below. Sufficient for both regimes; the "1–3 km" framing is
+  retired. Original description kept for context:
+  **Block-size knob via bbox distribution (KEEP the submesh capability).** Replace the
   ~116-line directional overlap **juggling** with a single **bounding-box distribution**: build *N*
   triangulation blocks where `N = (SourceEdgeLength / BlockEdgeLength)²`, push each point into every
   grid/block whose extent contains it, then triangulate, rasterise and free each block in turn. One knob,
@@ -125,21 +145,75 @@ Each phase builds & tests green on its own; biggest blast radius last.
   Phase 5.
 - **Phase 4 — RAM-gated parallelism.** A **shared RAM-budget pool**, configurable via env var
   (e.g. `TERRAIN_RAM_BUDGET_MB`, default a fraction of detected RAM); each block reserves its estimated
-  peak (~2.5 GB/3 km, scaled by point count) before starting. **1 km blocks stay available even for
-  sparse data** so low-mem workers still run. In-process = a semaphore over the pool; across Azure
-  Functions/containers = a concurrency cap tuned per instance. Wire into the worker and the Unity thread.
-- **Phase 5 — Cross-source halo (write-behind bands).** Closes the seam TODO. Extract/persist/consume
-  neighbour halo bands via `ITileScheme.Neighbors()`.
+  peak before starting. **1 km blocks stay available even for sparse data** so low-mem workers still
+  run. In-process = a semaphore over the pool; across Azure Functions/containers = a concurrency cap
+  tuned per instance. Wire into the worker and the Unity thread.
+  **Preconditions surfaced by the 2026-07-03 review:**
+  - *Builder result contract.* An "under work" / cancelled build returns an **empty grid**, and
+    `TileDsmPointCloudService` unconditionally increments `CompletedCount` — with a second DSM thread
+    the geometry builders would run against an empty DemDsm. Needs done/retry/failed semantics and
+    requeueing.
+  - *Error recovery.* An exception mid-build leaves `_sourceDemDsmDone` flagged "under work" forever;
+    every sibling of that source then yields empty grids.
+  - *Atomic cache/sidecar writes* (temp + rename). Parallel workers can race on the same halo band
+    (writer/writer and writer/reader), and a crash mid-`Serialize` leaves a truncated `.voxelgrid`
+    that the `File.Exists` check routes to the Reader forever. Bake into the `IStorage` (A1) contract.
+  - *Recalibrate the RAM estimate* from a logged whole-`Build` peak. The 2.5 GB spike measured the
+    triangulation only; a real whole-block `Build` also holds nine point-filled grids + the frame
+    list (plausibly 4–5 GB), and Unity adds its own overhead on top.
+- **Phase 5 — DONE (PR #51), semantics revised.** Cross-source halo landed as
+  `SeamMode None/SinglePass/TwoPass`; see the revised design bullet above (SinglePass is not
+  order-robust; TwoPass is the default at ~2× IO).
+- **Phase 5b — deferred seam fix-up pass (#53).** SinglePass IO with TwoPass correctness:
+  re-rasterise only the ~21 m edge strips of already-built tiles when the missing neighbour band
+  appears, triangulating a strip corridor from the two persisted frames (no `.laz` re-read).
+  Algorithm and acceptance test in the issue.
 - **Phase 6 — Output-grid generalization (largest blast radius, last).** `GridTileScheme` (arbitrary /
   `2^n`), new output-cache naming, re-tile rasters + geometries (`RasterCreator`, buildings/trees/water)
   onto the output scheme. Delivers the heightmap no-resample fix and non-Unity/arbitrary sizes.
-- **Phase 7 — (optional, later) custom spatial index.** License-clean chunk-interval index + `seek`
-  primitive in laszipnetstandard for on-demand spatial reads. Not needed for seams.
+  **Review notes:** decoupled outputs (e.g. 1024 m) won't nest inside 3 km sources — an output tile
+  near a source edge **straddles two or four sources**, so its cells rasterise from more than one
+  block, and the current "outputs nest in one source" layout (`iTilesPerEdge = source / output`)
+  inverts into "for each output tile, gather intersecting blocks". The halo machinery is exactly what
+  makes the straddling cells agree across sources. Also replace `Distribute()`'s per-point envelope
+  scan with **direct index computation** (regular grid → ≤4 candidate tiles per point given the 42 m
+  overlap) before output counts grow.
+- **Phase 7 — custom spatial index (upgraded from optional — see the design bullet above).**
+  License-clean chunk-interval index + `seek` primitive in laszipnetstandard for on-demand spatial
+  reads. Cuts TwoPass halo extraction to ~10–20 % reads, is the path to **dropping the persisted
+  voxelgrid** (Creators re-read points spatially on demand, A3/#43), and makes the las files
+  reusable for other purposes. Alternative/complement for the halo case: extract bands at **ingest**
+  (D1) while the file is hot, demoting TwoPass to a fallback.
 
 **Cross-cutting:** every LasUtility change must be re-vendored to `Runtime/dll/`; new cache naming/version
 invalidates the existing `D:\data\intermed` artifacts (expected).
 
-**Suggested first PR:** Phase 1 (the `ITileScheme` abstraction everything hangs off). Phase 0 is moot.
+**Next up:** Phase 4 preconditions (result contract, atomic writes) + the sibling in-memory cache
+quick win (§Performance below), then Phase 4 itself (old issue #3). Phase 5b (#53) slots in whenever
+batch/cloud builds appear.
+
+## Robustness notes (review 2026-07-03)
+
+- **Source edge comes from the tile scheme, not the `.laz` header — FIXED.** NLS delivers full 1 or
+  3 km tiles even on the coast, but the header extent only spans the actual points; deriving the grid
+  layout from it could drop output tiles on partial-coverage (coastal) tiles, leaving siblings to
+  deserialize files that never got written. `DemDsmCreator` now sizes the layout from the nominal
+  bounds and **warns when the point extent mismatches the nominal tile**. Only the NLS 1 km and 3 km
+  source sizes are supported.
+- **`TileNamer.Encode` is total** — every EPSG:3067 coordinate encodes (no throw at sea/grid edges),
+  so `Neighbors()` is safe on coastal tiles.
+- **`NlsTileScheme.Encode` double→int (LasUtility change):** push the conversion into `TileNamer`
+  (accept doubles) as `Floor` + a small epsilon instead of the raw `(int)` cast — a computed boundary
+  coordinate like `2999.9999999997` (meant as 3000) must not land one tile low, and cast-truncation
+  differs from floor for negative coordinates. Defence-in-depth: current callers are safe
+  (`Neighbors()` uses tile centres). Remember the re-vendor to `Runtime/dll/`.
+- **Determinism:** triangulation and halo consumption depend on point/build order, so artifacts are
+  not byte-stable across runs. Fine locally; revisit when cache diffing / freshness detection lands.
+- **Unity terrain LOD stitching is missing:** `Terrain.SetNeighbors` is not called anywhere in the
+  package. Note it only fixes **LOD-transition cracks between terrains whose edge heights already
+  agree** — it does *not* reconcile mismatched heightmaps, so the halo work stays necessary (and is
+  the only fix for non-Unity outputs). TODO: wire `SetNeighbors` (and shared edge-row samples) in
+  `TileUpdater` as the last mile after DEM-level seams.
 
 ## Architecture & deployment (cloud / browser)
 
@@ -169,6 +243,11 @@ content types and `ILogger` never touch Unity. The layering paid off. Two bounda
    version, output location) and a planner that turns "build area X at config Y" into idempotent jobs
    (today implicit in `TileManager.AddTilesInBounds`). And make **cache keys config-aware** — once
    block/output sizes and scheme vary, `name + version` (`IDemDsmBuilder.Filename`) silently collides.
+   **Policy for now (2026-07-03):** build config is compiled-in, so `name + assembly version` stays
+   the key — which means **any config change (block size, seam mode, output size) requires deleting
+   `intermed/`** (or bumping the version), or artifacts built under the old config mix silently with
+   new ones (whole-block vs submesh DEMs differ by up to 0.5 m; seams between mixed tiles won't
+   match). Config-aware keys become mandatory the moment config varies at runtime (A4).
 
 **Deployment targets:**
 
@@ -200,6 +279,18 @@ That is the load-time cost, and the reason a browser couldn't stomach the curren
   **index** (rebuilt in RAM on demand). Re-reading the `.laz` + re-binning was ~5 s in the spike —
   plausibly *faster* than deserializing the bloated `.voxelgrid`, so persisting it may save nothing even
   for re-analysis. Decision rule: persist when `recompute × access_frequency ≫ storage + load`.
+
+**Creator dependency (review 2026-07-03):** `SimpleTreeCreator` (per-cell `GetPoints`) and
+`BuildingsCreator` (`GetHighestPointInClassRange`) consume the voxelgrid's *points*, so "stop
+persisting points" breaks the restart-with-cached-DEM → geometry-Creator path. Direction chosen:
+serve the Creators from the **indexed point cloud** (Phase 7) — re-read points spatially on demand —
+rather than persisting a point dump; no separate DSM artifact is in use or planned.
+
+**Quick win, independent of the split:** after a source builds, its 8 sibling output grids are
+round-tripped through disk — `VoxelGrid.Deserialize` of files serialized seconds earlier (the load
+pain, self-inflicted right after creation). Keep the last source's grids in a bounded in-memory cache
+in the creator and serve siblings from RAM. The historical reason for serialize-everything — the old
+triangulation's RAM appetite — is gone; mind Unity's own RAM overhead when sizing the cache.
 
 Confirm the bottleneck with a quick profile (IO vs. deserialization/allocations), but the split holds
 regardless and is the single highest-impact perf change. It's also a prerequisite for the browser
@@ -396,10 +487,17 @@ the DLL-vendoring story.)
 
 ## Open questions / to revisit
 
-- Exact `ITileScheme` surface (neighbours by edge vs. 8-neighbourhood; how sub-tiles/parent are expressed).
+- ~~Exact `ITileScheme` surface~~ — settled in #42 (8-neighbourhood `Neighbors()`, `ParentTile`/`SubTiles`).
 - How block size and output size are chosen/configured (per-dataset config? auto from density?).
-- Whether block size must be an integer multiple of output size (clean slicing) or arbitrary (bbox slice).
-- RAM-budget model: fixed cap vs. measured-available; per-block estimate from point count.
+- ~~Whether block size must be an integer multiple of output size~~ — settled in #48: the regime is
+  binary (whole-block or per-output blocks), no intermediate sizes.
+- RAM-budget model: fixed cap vs. measured-available; per-block estimate from point count —
+  calibrate from a logged whole-`Build` peak, not the 2.5 GB triangulation-only spike.
+- Whether `tri.Create()` (11.4 s of the 16.6 s spike) can be cheapened: ground-point thinning for DEM
+  purposes, DelaunatorSharp tuning (first-party fork possible), on top of Phase 4's across-block
+  parallelism.
+- Seam fix-up (#53): acceptable max |Δh| at the strip's inner transition; verify against a full
+  TwoPass rebuild.
 - Output cache naming scheme for the generic grid.
 - NLS file-service throughput: job time **~23 s/tile measured**; **download throughput still to
   benchmark** on a good connection (sets cold-start UX / pre-warm).

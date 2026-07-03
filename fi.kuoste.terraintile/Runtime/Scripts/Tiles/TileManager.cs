@@ -125,7 +125,7 @@ namespace Kuoste.TerrainTile.Tiles
                 outputEdgeLength: 1000,           // 1 km Unity terrain tiles
                 blockEdgeLength: 3000,            // whole-block: triangulate the 3 km source as one block
                 sourceEdgeLength: 3000,           // 3 km .laz source tiles
-                seamMode: SeamMode.SinglePass);   // write own halo, consume existing neighbour halos
+                seamMode: SeamMode.TwoPass);   // extract missing neighbour halos on demand: seams close regardless of build order
 
             if (string.IsNullOrEmpty(RenderedArea))
             {

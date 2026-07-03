@@ -67,9 +67,18 @@ namespace Kuoste.TerrainEngine.TileBuilders.DemDsm
             Stopwatch sw = Stopwatch.StartNew();
             reader.OpenReader(sFilename);
 
-            int iSourceEdge = (int)Math.Round(reader.MaxX - reader.MinX);
+            // NLS delivers full 1 or 3 km tiles even on the coast, but the .laz header extent only
+            // spans the actual points, so the grid layout must come from the nominal tile bounds.
+            int iSourceEdge = (int)Math.Round(boundsSource.Width);
             int iSourceMinX = (int)Math.Round(boundsSource.MinX);
             int iSourceMinY = (int)Math.Round(boundsSource.MinY);
+
+            double dPointExtent = Math.Max(reader.MaxX - reader.MinX, reader.MaxY - reader.MinY);
+            if (Math.Abs(iSourceEdge - dPointExtent) > 1)
+            {
+                Logger.LogWarning($"Source {sSourceTileName}: point extent {dPointExtent:F0} m does not match " +
+                    $"the nominal {iSourceEdge} m tile (partial coverage or mis-tiled file). Sparse or empty outputs possible.");
+            }
 
             // --- Output grids: one overlapping output-size grid per output tile in the source (always). ---
             int iTilesPerEdge = iSourceEdge / iOutputEdge;
