@@ -515,3 +515,4 @@ the DLL-vendoring story.)
 - Cross-source date-mismatch policy (LiDAR vs MTK vs 3D buildings).
 - Other-country providers: which Nordic first, and their CRS/formats/class mappings.
 - Probe lives at `D:\tmp\LazProbe` (outside repo) — delete when done.
+verify
